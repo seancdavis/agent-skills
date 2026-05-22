@@ -90,7 +90,14 @@ Claude will also automatically invoke skills based on context.
 |-------|-------------|
 | `logging-and-monitoring` | Three-level logging, scoped loggers |
 | `environment-variables` | Netlify CLI management |
-| `paper-trail` | Architecture Decision Records (ADR) |
+
+### Project Documentation
+| Skill | Description |
+|-------|-------------|
+| `grill-me` | Slash command for pre-execution alignment interviews |
+| `paper-trail` | Per-session log of grill outcomes (`docs/sessions/`) |
+| `decision-log` | Architecture Decision Records (`docs/decisions/`) |
+| `operating-principles` | Living current-state doc (`docs/principles.md`) |
 
 ### Supplementary
 | Skill | Description |

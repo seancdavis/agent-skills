@@ -291,6 +291,10 @@ rl.question('Type the project name to confirm: ', (answer) => {
 
 Use the `claude-md-template` skill to generate the project's CLAUDE.md file based on the chosen technologies.
 
+### Suggest a grill session
+
+Once scaffolding is in place but before any feature work, suggest Sean run `/grill-me` to capture initial intent, scope, and decisions. The session produces a first `paper-trail` entry, any kickoff ADRs in `decision-log`, and an initial `operating-principles` doc — so the project starts with documentation already in place rather than backfilled later.
+
 ### Apply Relevant Skills
 
 Based on the project requirements, implement patterns from:

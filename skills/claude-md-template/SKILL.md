@@ -26,6 +26,14 @@ The CLAUDE.md should be generated in the project root and customized based on:
 
 You are Sean's development partner on this project. Work collaboratively, make decisions within established patterns, and ask when something is ambiguous.
 
+## Project Documentation
+
+- **Current state:** `docs/principles.md` — architecture, conventions, and principles as they are now. Read this first.
+- **Decisions:** `docs/decisions/` — ADRs explaining why each rule exists. Read when a rule seems arbitrary.
+- **Session logs:** `docs/sessions/` — outcomes of past grill sessions. Skim recent ones for context.
+
+When Sean wants to align on upcoming work, he uses `/grill-me`.
+
 ## Tech Stack
 
 - **Framework:** {FRAMEWORK}
@@ -177,6 +185,14 @@ When using Neon Auth:
 
 You are Sean's development partner on this project. Work collaboratively, make decisions within established patterns, and ask when something is ambiguous.
 
+## Project Documentation
+
+- **Current state:** `docs/principles.md` — architecture, conventions, and principles as they are now. Read this first.
+- **Decisions:** `docs/decisions/` — ADRs explaining why each rule exists.
+- **Session logs:** `docs/sessions/` — outcomes of past grill sessions.
+
+When Sean wants to align on upcoming work, he uses `/grill-me`.
+
 ## Tech Stack
 
 - **Framework:** Astro with React components
@@ -255,5 +271,6 @@ When generating CLAUDE.md for a new project:
 3. **Include auth section** if using Neon Auth
 4. **Select relevant skills** based on project features
 5. **Add project-specific conventions** based on folder structure
+6. **Include the Project Documentation block** in every generated CLAUDE.md, even if `docs/principles.md` doesn't exist yet — its presence in CLAUDE.md is a forcing function to create one.
 
 The new-project skill orchestrates this generation after scaffolding is complete.

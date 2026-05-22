@@ -26,6 +26,9 @@ ls *.config.* 2>/dev/null # Config files present
 | `@netlify/functions` or `netlify/functions/` | `netlify-functions`                 |
 | `tailwindcss`                           | `ui-design`                              |
 | `netlify.toml`                          | `netlify-functions`, `environment-variables` |
+| `docs/decisions/` directory             | `decision-log` (ADRs already exist)      |
+| `docs/sessions/` directory              | `paper-trail` (session logs already exist) |
+| `docs/principles.md`                    | `operating-principles` (read first; reflects current state) |
 
 ---
 
@@ -125,3 +128,11 @@ Review existing CLAUDE.md sections against skills:
 1. Read final CLAUDE.md - is it coherent?
 2. Skills section present with relevant skills listed?
 3. No duplicate instructions between CLAUDE.md and skills?
+
+---
+
+## Step 6: Suggest grill-me if no principles doc exists
+
+If the project does not already have `docs/principles.md`, suggest Sean run `/grill-me` to capture current architecture, conventions, and principles as a living doc. Existing projects often have these decisions only in Sean's head — onboarding is a natural moment to externalize them.
+
+If `docs/principles.md` already exists, read it first; that's the authoritative current-state doc for the project (more current than this skill's defaults).
