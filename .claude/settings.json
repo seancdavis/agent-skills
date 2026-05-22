@@ -1,5 +1,15 @@
 {
   "enabledPlugins": {
     "example-skills@anthropic-agent-skills": true
+  },
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "mcp__claude_ai_GitHub__get_file_contents",
+      "mcp__claude_ai_GitHub__search_code",
+      "mcp__claude_ai_GitHub__pull_request_read",
+      "mcp__claude_ai_GitHub__search_pull_requests"
+    ]
   }
 }

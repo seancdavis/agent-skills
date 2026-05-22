@@ -18,7 +18,11 @@
       "Bash(do jq:*)",
       "Bash(done)",
       "Bash(/dev/null -exec echo \"=== {} ===\" ; -exec cat {} ;)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(curl -sL https://api.github.com/repos/netlify/context-and-tools/contents/skills)",
+      "Bash(curl -sL https://raw.githubusercontent.com/netlify/context-and-tools/main/skills/netlify-functions/SKILL.md)",
+      "Bash(awk '{print $2}')",
+      "Bash(git checkout *)"
     ]
   }
 }
