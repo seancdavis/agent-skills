@@ -23,7 +23,8 @@
       "Bash(curl -sL https://raw.githubusercontent.com/netlify/context-and-tools/main/skills/netlify-functions/SKILL.md)",
       "Bash(awk '{print $2}')",
       "Bash(git checkout *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(curl *)"
     ]
   }
 }
