@@ -103,6 +103,16 @@ Skills are invoked automatically by Claude based on context, or manually:
 | `seo` | Meta tags, Open Graph, structured data |
 | `ui-design` | Tailwind CSS v4, accessibility baseline |
 
+## Status Line
+
+This repo also ships a custom Claude Code status line (repo · branch · ticket · context-usage bar · cost · model). Install it on a Mac with:
+
+```bash
+./statusline/install.sh
+```
+
+The installer handles Homebrew, `jq`, and a Nerd Font, then wires the script into `~/.claude/settings.json`. See [`statusline/README.md`](statusline/README.md) for details and customization.
+
 ## Tech Stack
 
 These skills are designed for projects using:
