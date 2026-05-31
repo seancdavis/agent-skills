@@ -73,7 +73,7 @@ Claude will also automatically invoke skills based on context.
 ### Auth & UX
 | Skill | Description |
 |-------|-------------|
-| `auth-design` | Neon Auth with Google OAuth, approved users safelist |
+| `auth-design` | Netlify Identity with Google OAuth, approved users safelist |
 | `feedback` | Toast notifications, query param messages |
 | `forms` | HTTP forms (Astro) vs JSON forms (React) |
 
