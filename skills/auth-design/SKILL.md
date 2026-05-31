@@ -1,95 +1,48 @@
 ---
 name: auth-design
-description: Authentication patterns and implementation for Netlify projects using Neon Auth with Google OAuth. Use when implementing user authentication, protecting routes/pages, managing sessions, or implementing user safelists. Covers three tiers of access control, server-side auth patterns, and common pitfalls agents encounter with auth.
+description: Personal conventions for auth on Netlify projects using Netlify Identity. Use when implementing user authentication, protecting routes/pages/functions, managing sessions, or gating access by safelist. Covers the three-tier access framework, the approved-users-table opinion (and why-not app_metadata.roles), the `getUserWithApproval` API shape, data scoping, and the Identity-doesn't-work-with-netlify-dev gotcha. The Identity SDK itself is covered by Netlify's netlify-identity skill.
 ---
 
-# Auth Design
+# Auth Design — Conventions
 
-## Three Tiers of Access Control
+For the `@netlify/identity` API (`oauthLogin`, `getUser`, `handleAuthCallback`, `logout`, `onAuthChange`), dashboard configuration, and event functions, see Netlify's `netlify-identity` skill.
 
-### Tier 1: Personal/Private Apps (Simplest)
-
-For apps only Sean uses:
-
-**Solution:** Mark the Netlify site as private → uses Netlify team SSO.
-
-No auth code needed. Netlify handles everything.
-
-### Tier 2: Apps with Other Users
-
-For apps where specific people need access:
-
-**Solution:** Neon Auth + approved users safelist.
-
-Since Google OAuth signups can't be prevented, implement an `approved_users` table. Unapproved users see an unauthorized page.
-
-### Tier 3: Machine-to-Machine / Public APIs
-
-For services calling your API:
-
-**Solution:** Simple API key approach.
-
-Store API key in Netlify environment variables, validate in function handlers.
+This file covers the opinion layer on top.
 
 ---
 
-## Neon Auth Setup
+## Defaults
 
-### Environment Configuration
-
-Neon Auth requires a proxy redirect in `netlify.toml`:
-
-```toml
-[[redirects]]
-  from = "/neon-auth/*"
-  to = "https://{neon-auth-endpoint}/neondb/auth/:splat"
-  status = 200
-  force = true
-```
-
-The Neon Auth endpoint is provided when you enable auth in your Neon project.
-
-### Client Setup
-
-**Astro (server-side):**
-
-```typescript
-// src/lib/auth.ts
-import { createAuthClient } from '@neondatabase/neon-js/auth';
-import type { AuthClient } from '@neondatabase/neon-js/auth';
-
-export function getOrigin(request: Request): string {
-  const url = new URL(request.url);
-  const proto = request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '');
-  return `${proto}://${url.host}`;
-}
-
-export function createAuthClientForOrigin(origin: string): AuthClient {
-  return createAuthClient(`${origin}/neon-auth`);
-}
-```
-
-**Vite + React (client-side):**
-
-```typescript
-// src/lib/auth.ts
-import { createAuthClient } from '@neondatabase/neon-js/auth';
-
-const getAuthUrl = () => {
-  if (import.meta.env.PROD) {
-    return `${window.location.origin}/neon-auth`;
-  }
-  return import.meta.env.VITE_NEON_AUTH_URL;
-};
-
-export const authClient = createAuthClient(getAuthUrl());
-```
+- **Google OAuth is the only login method.** Enable Google in **Project configuration > Identity > External providers** and omit the email/password form from the UI. There's no "email provider" toggle in Identity — the front-end is the gate.
+- **Registration is "Invite only" by default.** Set in **Project configuration > Identity > Registration**. Identity's default is open signup; Sean's projects aren't open-signup apps, so this gets flipped on every project.
 
 ---
 
-## Approved Users Safelist
+## Three tiers of access
 
-### Database Schema
+### Tier 1 — Personal/private apps
+
+Apps only Sean uses. Mark the Netlify site as private → uses Netlify team SSO. No auth code, no Identity. Skip the rest of this skill.
+
+### Tier 2 — Apps with specific external users
+
+The common case. Netlify Identity + Google OAuth + an `approved_users` table. Identity authenticates; the safelist decides who can actually use the app.
+
+### Tier 3 — Machine-to-machine / public APIs / MCP servers
+
+Bearer token in `Authorization` header, validated against an env var. Use this for MCP endpoints, webhook receivers, and any non-browser caller. See the [API key pattern](#api-key-pattern-tier-3) below.
+
+---
+
+## Approved-users safelist (Tier 2)
+
+Identity supports `app_metadata.roles` for authorization, but Sean uses a separate `approved_users` table instead. Reasons:
+
+- A real table can be queried, edited, and joined against — admin tooling is just a CRUD page.
+- Survives a provider switch. The day Identity gets replaced, the gate logic moves but the data stays.
+- Keeps the auth provider's job small: authenticate, that's it.
+
+### Schema
 
 ```typescript
 // db/schema.ts
@@ -107,406 +60,142 @@ export const approvedUsers = pgTable('approved_users', {
 });
 ```
 
-### Auth Utilities
+### `getUserWithApproval(request)`
+
+This is the API the rest of the codebase calls. Shape is stable across provider changes:
 
 ```typescript
 // src/lib/auth.ts
+import { getUser } from '@netlify/identity';
 import { eq } from 'drizzle-orm';
+import { db, approvedUsers } from '../db';
 
-export type User = {
-  id: string;
-  email: string;
-  name: string | null;
-  image: string | null;
+export type AuthResult = {
+  user: { id: string; email: string; name: string | null };
+  isApproved: boolean;
+  isAdmin: boolean;
 };
 
-export async function getUser(request: Request): Promise<User | null> {
-  const origin = getOrigin(request);
-  const cookies = request.headers.get('cookie') || '';
-
-  try {
-    const response = await fetch(`${origin}/neon-auth/get-session`, {
-      method: 'GET',
-      headers: { cookie: cookies },
-    });
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    if (!data?.user) return null;
-
-    return {
-      id: data.user.id,
-      email: data.user.email,
-      name: data.user.name ?? null,
-      image: data.user.image ?? null,
-    };
-  } catch (error) {
-    console.error('Error getting session:', error);
-    return null;
-  }
-}
-
-export async function isUserApproved(email: string): Promise<boolean> {
-  const { db, approvedUsers } = await import('../db');
-
-  const [user] = await db
-    .select()
-    .from(approvedUsers)
-    .where(eq(approvedUsers.email, email))
-    .limit(1);
-
-  return !!user;
-}
-
-export async function isUserAdmin(email: string): Promise<boolean> {
-  const { db, approvedUsers } = await import('../db');
-
-  const [user] = await db
-    .select()
-    .from(approvedUsers)
-    .where(eq(approvedUsers.email, email))
-    .limit(1);
-
-  return user?.isAdmin ?? false;
-}
-
-export async function getUserWithApproval(
-  request: Request,
-): Promise<{ user: User; isApproved: boolean; isAdmin: boolean } | null> {
-  const user = await getUser(request);
+export async function getUserWithApproval(_request: Request): Promise<AuthResult | null> {
+  const user = await getUser();
   if (!user) return null;
 
-  const { db, approvedUsers } = await import('../db');
-
-  const [approvedUser] = await db
+  const [approved] = await db
     .select()
     .from(approvedUsers)
     .where(eq(approvedUsers.email, user.email))
     .limit(1);
 
   return {
-    user,
-    isApproved: !!approvedUser,
-    isAdmin: approvedUser?.isAdmin ?? false,
+    user: { id: user.id, email: user.email, name: user.name ?? null },
+    isApproved: !!approved,
+    isAdmin: approved?.isAdmin ?? false,
   };
 }
 ```
 
+The `request` parameter is unused by `@netlify/identity` (the SDK reads session state from the function's async context), but the signature is kept so call sites in Astro pages pass `Astro.request` — it documents that this is server-side code.
+
 ---
 
-## Astro Auth Patterns
+## Astro pattern
 
-### Protected Page
+Protected page — auth check at the top of the frontmatter, redirects before render:
 
 ```astro
 ---
-// src/pages/dashboard.astro
-import Layout from "../layouts/Layout.astro";
-import { DashboardPage } from "../components/pages/DashboardPage";
-import { getUserWithApproval } from "../lib/auth";
-
+import { getUserWithApproval } from '../lib/auth';
 const auth = await getUserWithApproval(Astro.request);
-
-if (!auth) {
-  return Astro.redirect("/login");
-}
-
-if (!auth.isApproved) {
-  return Astro.redirect("/unauthorized");
-}
-
-const { user, isAdmin } = auth;
+if (!auth) return Astro.redirect('/login');
+if (!auth.isApproved) return Astro.redirect('/unauthorized');
 ---
 <Layout title="Dashboard">
-  <DashboardPage user={user} isAdmin={isAdmin} />
+  <DashboardPage user={auth.user} isAdmin={auth.isAdmin} />
 </Layout>
 ```
 
-### Login Page
-
-```astro
----
-// src/pages/login.astro
-import Layout from "../layouts/Layout.astro";
-import { LoginPage } from "../components/pages/LoginPage";
-import { getUser } from "../lib/auth";
-
-const user = await getUser(Astro.request);
-if (user) {
-  return Astro.redirect("/");
-}
----
-<Layout title="Sign In">
-  <LoginPage />
-</Layout>
-```
-
-### OAuth Callback Handler
-
-```typescript
-// src/pages/api/auth/callback.ts
-import type { APIRoute } from 'astro';
-import { getOrigin } from '../../../lib/auth';
-import { logger } from '../../../lib/logger';
-
-const log = logger.scope('CALLBACK');
-
-export const GET: APIRoute = async ({ request, redirect }) => {
-  const url = new URL(request.url);
-  const verifier = url.searchParams.get('neon_auth_session_verifier');
-  const destination = url.searchParams.get('redirect') || '/';
-  const origin = getOrigin(request);
-
-  if (!verifier) {
-    log.warn('No verifier in callback');
-    return redirect('/login', 302);
-  }
-
-  try {
-    const cookies = request.headers.get('cookie') || '';
-
-    const sessionResponse = await fetch(
-      `${origin}/neon-auth/get-session?neon_auth_session_verifier=${verifier}`,
-      {
-        method: 'GET',
-        headers: { cookie: cookies, Origin: origin },
-      },
-    );
-
-    if (!sessionResponse.ok) {
-      log.error('Session error');
-      return redirect('/login?message=auth_error', 302);
-    }
-
-    const response = redirect(`${destination}?message=signed_in`, 302);
-
-    // Forward session cookies
-    for (const cookie of sessionResponse.headers.getSetCookie()) {
-      response.headers.append('Set-Cookie', cookie);
-    }
-
-    log.info('Session established');
-    return response;
-  } catch (error) {
-    log.error('Callback error:', error);
-    return redirect('/login?message=auth_error', 302);
-  }
-};
-```
-
-### Sign In/Out API Routes
-
-```typescript
-// src/pages/api/auth/signin.ts
-import type { APIRoute } from 'astro';
-import { createAuthClientForOrigin, getOrigin } from '../../../lib/auth';
-
-export const GET: APIRoute = async ({ request, redirect }) => {
-  const url = new URL(request.url);
-  const destination = url.searchParams.get('redirect') || '/';
-  const origin = getOrigin(request);
-
-  const authClient = createAuthClientForOrigin(origin);
-  const authUrl = await authClient.getOAuthUrl({
-    provider: 'google',
-    redirectUrl: `${origin}/api/auth/callback?redirect=${encodeURIComponent(destination)}`,
-  });
-
-  return redirect(authUrl, 302);
-};
-```
-
-```typescript
-// src/pages/api/auth/signout.ts
-import type { APIRoute } from 'astro';
-import { createAuthClientForOrigin, getOrigin } from '../../../lib/auth';
-
-export const GET: APIRoute = async ({ request, redirect }) => {
-  const origin = getOrigin(request);
-  const authClient = createAuthClientForOrigin(origin);
-
-  const response = redirect('/?message=signed_out', 302);
-
-  // Clear session cookies
-  const signOutResponse = await authClient.signOut();
-  for (const cookie of signOutResponse.headers.getSetCookie()) {
-    response.headers.append('Set-Cookie', cookie);
-  }
-
-  return response;
-};
-```
+Sign-in is a one-line client island calling `oauthLogin('google')`. OAuth callback runs in the browser via `handleAuthCallback()` — no `/api/auth/callback` route needed. Mount a small `client:load` island on every page (or at least `/` and `/login`) whose `useEffect` calls `handleAuthCallback().catch(console.error)`.
 
 ---
 
-## Vite + React Auth Patterns
+## Vite + React pattern
 
-### Auth Hook
+One `AuthProvider` context that calls `handleAuthCallback()` then `getUser()` on mount, and subscribes to `onAuthChange`. Route guards live in the layout, not on every route — a single `if (!user) return <Navigate to={`/login?returnTo=...`} />` covers the whole protected subtree.
 
-```typescript
-// src/hooks/useAuth.ts
-import { useState, useEffect, createContext, useContext } from 'react';
-import { authClient } from '../lib/auth';
+For client → function calls, **don't pass user info via headers** — the function calls `getUser()` itself. Headers can be forged; the SDK's cookie validation can't.
 
-interface AuthContextType {
-  user: User | null;
-  loading: boolean;
-  authenticated: boolean;
-  permissions: Permissions;
-  signIn: () => void;
-  signOut: () => void;
-  refetch: () => Promise<void>;
-}
+---
 
-export const AuthContext = createContext<AuthContextType | null>(null);
+## Netlify Functions — `requireAuth` wrapper
 
-export function useAuthProvider(): AuthContextType {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const fetchSession = async () => {
-    try {
-      const session = await authClient.getSession();
-      setUser(session?.user ?? null);
-    } catch {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSession();
-  }, []);
-
-  const signIn = () => {
-    authClient.signIn({ provider: 'google' });
-  };
-
-  const signOut = async () => {
-    await authClient.signOut();
-    setUser(null);
-  };
-
-  return {
-    user,
-    loading,
-    authenticated: !!user,
-    permissions: getPermissions(user),
-    signIn,
-    signOut,
-    refetch: fetchSession,
-  };
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
-}
-```
-
-### Protected Routes
-
-```tsx
-// src/App.tsx
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { authenticated, loading } = useAuth();
-
-  if (loading) return <PageLoader />;
-  if (!authenticated) return <SignInPage />;
-
-  return <>{children}</>;
-}
-
-function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { permissions } = useAuth();
-
-  if (!permissions.admin) {
-    return <UnauthorizedPage />;
-  }
-
-  return <>{children}</>;
-}
-```
-
-### Header Auth in Netlify Functions
-
-For Vite + React, auth info is passed via headers from the client:
+Every protected function wraps its handler. Keeps the auth check off the body of each function:
 
 ```typescript
 // netlify/functions/_shared/auth.ts
-export async function requireAuth(req: Request): Promise<AuthResult> {
-  const userId = req.headers.get('x-user-id');
-  const email = req.headers.get('x-user-email');
+import type { Context } from '@netlify/functions';
+import { getUser } from '@netlify/identity';
 
-  if (!userId || !email) {
-    return { authenticated: false };
-  }
+type Handler = (req: Request, ctx: Context) => Response | Promise<Response>;
 
-  const permissions = getPermissionsFromEmail(email);
-  return { authenticated: true, userId, email, permissions };
+export function requireAuth(handler: Handler): Handler {
+  return async (req, ctx) => {
+    const user = await getUser();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    return handler(req, ctx);
+  };
 }
 ```
 
+For routes that also need the safelist check, write a parallel `requireApproved` that calls `getUserWithApproval` and 403s on `!isApproved` — same wrapper shape.
+
 ---
 
-## Data Scoping
+## API key pattern (Tier 3)
 
-Authentication alone doesn't protect user data — queries must also be scoped. If content is specific to a user (runs they created, notes they wrote, keys they own), every query that reads or modifies that content must filter by the authenticated user's ID. Return 404 (not 403) when a resource exists but doesn't belong to the requesting user, to avoid leaking information about other users' data.
-
-For sub-resources (e.g., sessions belonging to a run), verify ownership of the parent resource rather than adding a userId to every child table.
+MCP endpoints, webhook receivers, public API routes — anything not coming from a browser session. Bearer token in `Authorization`, compared against an env var:
 
 ```typescript
-// Good: ownership check built into the query
-const [run] = await db.select().from(runs)
-  .where(and(eq(runs.id, runId), eq(runs.userId, auth.userId)));
-if (!run) {
-  return Response.json({ error: "Run not found" }, { status: 404 });
+// netlify/functions/_shared/bearer.ts
+export function checkBearer(req: Request): boolean {
+  const expected = process.env.MCP_BEARER_TOKEN;
+  if (!expected) return false;
+  const match = req.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i);
+  return !!match && match[1] === expected;
 }
-
-// Bad: fetching without ownership check
-const [run] = await db.select().from(runs)
-  .where(eq(runs.id, runId));
 ```
 
----
-
-## Cookie Handling (Safari/Localhost)
-
-Neon Auth cookies may need adjustments for Safari ITP and localhost:
+Usage:
 
 ```typescript
-function fixCookieForLocalhost(cookie: string): string {
-  return cookie
-    .replace(/^__Secure-/i, '')
-    .replace(/;\s*Secure/gi, '')
-    .replace(/;\s*Partitioned/gi, '')
-    .replace(/;\s*SameSite=None/gi, '; SameSite=Lax');
-}
-
-function fixCookieForSafari(cookie: string): string {
-  return cookie.replace(/;\s*Partitioned/gi, '').replace(/;\s*SameSite=None/gi, '; SameSite=Lax');
-}
+export default async (req: Request) => {
+  if (!checkBearer(req)) return new Response('Unauthorized', { status: 401 });
+  // ...
+};
 ```
 
----
-
-## Common Pitfalls
-
-1. **Forgetting the redirect proxy** - Neon Auth needs the `/neon-auth/*` redirect in netlify.toml
-2. **Cookie issues on localhost** - May need to strip `__Secure-` prefix and `Secure` flag
-3. **Safari ITP blocking** - Remove `Partitioned` and change `SameSite=None` to `SameSite=Lax`
-4. **Not checking approval status** - User being authenticated doesn't mean they're approved
-5. **Skipping auth on API routes** - Always verify auth in mutation endpoints
-6. **Exposing user data** - Only return necessary fields, never passwords/tokens
+One token per env var, named for the consumer (`MCP_BEARER_TOKEN`, `WEBHOOK_TOKEN`, etc.) — not a single shared `API_TOKEN`. Makes rotation surgical.
 
 ---
 
-## Logging Auth Activity
+## Data scoping
 
-Always log auth events for security monitoring:
+Every query against user-owned data filters by the authenticated user's ID. Return **404, not 403**, when a resource exists but doesn't belong to the requester — a 403 confirms the row exists, which leaks structure to anyone enumerating IDs.
+
+```typescript
+const [run] = await db
+  .select()
+  .from(runs)
+  .where(and(eq(runs.id, runId), eq(runs.userId, auth.user.id)));
+if (!run) return Response.json({ error: 'Not found' }, { status: 404 });
+```
+
+For sub-resources (sessions belonging to a run), check ownership of the parent rather than denormalizing `userId` onto every child table. This rule also lives in `data-storage` — same rule, two places it gets violated.
+
+---
+
+## Auth logging
+
+Standard vocabulary, scoped logger:
 
 ```typescript
 const log = logger.scope('AUTH');
@@ -516,13 +205,30 @@ log.warn('Unapproved user attempted access:', email);
 log.error('Session verification failed');
 ```
 
-See `logging-and-monitoring` skill for Discord notification integration.
+See `logging-and-monitoring` for the Discord notification integration that picks up `warn`/`error`.
 
 ---
 
-## Related Skills
+## Local dev — Identity does not work with `netlify dev`
 
-- `astro-best-practices` - Page-level auth patterns
-- `vite-best-practices` - Client-side auth hooks
-- `logging-and-monitoring` - Auth activity logging
-- `data-storage` - approved_users table schema
+This conflicts with the standard "always run via netlify dev" workflow (see `environment-variables`). Identity flows can only be exercised against a deploy. Build UI shells locally with `netlify dev` and mock `getUserWithApproval` to return a fake user; for real auth testing, push to a branch and use the Netlify deploy preview. Don't write `if (dev)` branches in auth code — mock at the call site instead.
+
+---
+
+## Common pitfalls
+
+1. **Registration left as Open** — Identity's default. Flip to Invite-only on every new project.
+2. **Skipping the safelist check** — being authenticated isn't being approved. The pattern is `if (!auth) → /login; if (!auth.isApproved) → /unauthorized`.
+3. **Trusting client headers for user ID** — pass nothing; the function calls `getUser()` itself.
+4. **Forgetting `handleAuthCallback()`** — OAuth comes back with a URL hash; without the callback handler, the session never sticks.
+5. **Testing auth with `netlify dev`** — it won't work. Push to a branch preview.
+
+---
+
+## Related skills
+
+- Netlify's `netlify-identity` skill — SDK API surface and dashboard configuration
+- `data-storage` — `approved_users` table lives here; data scoping rule duplicated for visibility
+- `netlify-functions` — `_shared/auth.ts` content (the `requireAuth` wrapper)
+- `logging-and-monitoring` — `logger.scope('AUTH')` and Discord routing
+- `environment-variables` — where `MCP_BEARER_TOKEN` and friends live
