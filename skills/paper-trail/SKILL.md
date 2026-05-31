@@ -1,285 +1,122 @@
 ---
 name: paper-trail
-description: Maintaining a decision log alongside Git history for capturing the "why" behind decisions. Use when documenting architectural decisions, recording trade-offs, or establishing project conventions. Follows ADR (Architecture Decision Records) patterns.
+description: Session log format. One file per grill-me session, capturing the outcome of that session — what Sean and Claude landed on, not the back-and-forth that got them there. Use when ending a `/grill-me` session, or any other time a substantive design conversation reaches a conclusion that should outlive the chat. ADR-style decisions go in `decision-log`; current-state architecture goes in `operating-principles`. This skill is only for the session log.
 ---
 
-# Paper Trail
+# Paper Trail — Session Log
 
-## Purpose
-
-Git commits capture **what** happened. This skill captures **why** decisions were made.
+For ADR-formatted decision records, see `decision-log`. For the living current-state doc, see `operating-principles`. This skill covers the per-session log only.
 
 ---
 
-## When to Create a Record
+## What a session log is
 
-- Major architectural decisions (framework choice, database design)
-- Technology selections with trade-offs
-- Patterns established that aren't obvious
-- Decisions that might be questioned later
-- Changes from original plan
+A snapshot of where a single grill (or any substantial design conversation) ended up. Sean has limited time; he can't re-read transcripts. The session log is the "if you only read one file, this is what we landed on" artifact.
+
+It captures the **outcome**:
+
+- What was discussed in broad strokes.
+- What got decided (with links to the ADRs that hold the why).
+- What's still open and needs further work.
+- What's been added to / changed in `operating-principles`.
+
+It does **not** capture:
+
+- The back-and-forth that got there.
+- Tangents that were raised and resolved.
+- Options considered but not chosen (that belongs in an ADR if a decision was made, otherwise it's just noise).
+- Conflicting opinions that were aligned during the session.
+
+The bar: a reader who wasn't there should understand what to do next, and could pull the ADRs for the why.
 
 ---
 
 ## Location
 
-Store in `docs/decisions/` (not `.claude/` — should be public and tracked):
-
 ```
 project/
-├── docs/
-│   └── decisions/
-│       ├── 0001-use-astro-over-nextjs.md
-│       ├── 0002-timestamp-migrations.md
-│       └── 0003-approved-users-safelist.md
-├── src/
-└── ...
+└── docs/
+    └── sessions/
+        ├── 2026-05-22-grill-project-kickoff.md
+        ├── 2026-05-29-grill-auth-rewrite.md
+        └── 2026-06-03-grill-image-pipeline.md
 ```
+
+Filename: `YYYY-MM-DD-{short-slug}.md`. Date first so the directory sorts chronologically.
 
 ---
 
-## ADR Format
-
-Use Architecture Decision Records (ADR) format:
+## Format
 
 ```markdown
-# {NUMBER}. {TITLE}
+# {YYYY-MM-DD} — {Short title}
 
-Date: {YYYY-MM-DD}
-Status: {proposed | accepted | deprecated | superseded by [ADR-XXXX]}
+## Topic
 
-## Context
+{One paragraph: what this session was about and why it happened.}
 
-{What is the issue or question that motivated this decision?}
-{What constraints or forces are at play?}
+## Outcome
 
-## Decision
+{2–5 bullets: what was landed on. Concrete, not vague. "Use Netlify Identity with the invite-only registration setting" beats "decided on auth approach."}
 
-{What is the change or solution being proposed/made?}
-{Be specific and concrete.}
+## Decisions filed
 
-## Consequences
+- [ADR-0007 — {Title}](../decisions/0007-{slug}.md)
+- [ADR-0008 — {Title}](../decisions/0008-{slug}.md)
 
-{What becomes easier or harder as a result?}
-{What are the trade-offs?}
-{Are there follow-up actions needed?}
+(Omit this section if no ADRs were filed.)
+
+## Operating principles updated
+
+- {Section that changed in `docs/principles.md`} — {one-line summary of the change}
+
+(Omit if `principles.md` didn't change.)
+
+## Still open
+
+- {Open question that didn't get resolved this session}
+- {Decision deliberately deferred until X is known}
+
+(Omit if nothing is open.)
+
+## Next steps
+
+- {Concrete action, with owner if not Sean}
+- {Concrete action}
 ```
 
----
-
-## Example: Framework Selection
-
-```markdown
-# 0001. Use Astro over Next.js
-
-Date: 2024-01-15
-Status: accepted
-
-## Context
-
-Starting a new Super Bowl party app. Users will view entries, vote, and check
-a squares game. The vast majority of interactions are read-only displays. Only
-a few forms for creating entries and casting votes.
-
-Options considered:
-
-- Next.js (App Router)
-- Astro with React islands
-- Vite + React SPA
-
-## Decision
-
-Use Astro with React components and server-side rendering.
-
-Reasons:
-
-- Most pages are content display (server rendering is ideal)
-- Only 2-3 interactive components (form submission, squares picker)
-- Ships minimal JavaScript by default
-- Better performance for mobile users with spotty Super Bowl party WiFi
-- Simpler mental model: server by default, client when needed
-
-## Consequences
-
-**Easier:**
-
-- SEO and performance are handled automatically
-- No client-side routing complexity for mostly-static pages
-- Faster initial page loads
-
-**Harder:**
-
-- Need to think about which components need `client:*` directives
-- Can't use React context across the whole app (islands are isolated)
-- Some patterns from SPA world don't apply
-
-**Follow-up:**
-
-- Use React components (not Astro components) for anything that might
-  eventually need interactivity
-```
+Sections that don't apply get omitted. Don't write "N/A" placeholders.
 
 ---
 
-## Example: Technical Decision
+## Writing rules
 
-````markdown
-# 0002. Use Timestamp Prefixes for Migrations
-
-Date: 2024-01-16
-Status: accepted
-
-## Context
-
-Drizzle ORM defaults to sequential migration numbering (0001, 0002, etc.).
-We have multiple developers and may work on parallel branches that each
-create migrations.
-
-Sequential numbering causes conflicts when merging branches that both
-added a "0003" migration.
-
-## Decision
-
-Configure Drizzle to use Unix timestamp prefixes for migrations:
-
-```typescript
-// drizzle.config.ts
-export default defineConfig({
-  migrations: {
-    prefix: 'timestamp',
-  },
-});
-```
-````
-
-This produces migrations like `20240116123456_add_users_table.sql`.
-
-## Consequences
-
-**Easier:**
-
-- Parallel branches can both create migrations without conflicts
-- Clear ordering by creation time
-- Safer for team development
-
-**Harder:**
-
-- Migration filenames are longer
-- Can't easily see "how many migrations" at a glance
-
-The trade-off is worth it for the merge safety.
-
-````
+- **Past tense, indicative.** "Decided to use X" not "We should use X."
+- **Link, don't restate.** Decisions live in ADRs; principles live in `principles.md`. The session log points at them; it doesn't duplicate them.
+- **No transcript.** If you're tempted to write "Sean said... and then I said...", stop.
+- **One page max.** If the log is longer than a screen, something belongs in an ADR instead.
 
 ---
 
-## Lightweight Format
+## When to write one
 
-For smaller decisions, a lighter format works:
+- End of every `/grill-me` session — always, even short ones.
+- End of any other design conversation that produced something worth remembering. Sean's call.
 
-```markdown
-# 0003. Approved Users Safelist Pattern
-
-Date: 2024-01-16
-Status: accepted
-
-**Context:** Need auth but can't prevent Google OAuth signups.
-
-**Decision:** Use `approved_users` database table as safelist. Users who
-sign in but aren't in the table see an "unauthorized" page.
-
-**Rationale:** Simpler than trying to restrict OAuth at the provider level.
-Allows adding users by just inserting rows.
-````
+If a session resolved nothing concrete (rare — usually means the grill needs to continue), still write one short entry noting "no decisions reached, see Still open."
 
 ---
 
-## When NOT to Write an ADR
+## Anti-patterns
 
-- Obvious choices (TypeScript over JavaScript)
-- Temporary workarounds (note in code instead)
-- Implementation details that don't affect architecture
-- Decisions already well-documented elsewhere
-
----
-
-## Updating Records
-
-Don't delete old records. Instead:
-
-```markdown
-Status: superseded by [0007-switch-to-supabase.md]
-```
-
-Or:
-
-```markdown
-Status: deprecated
-
-## Update (2024-03-01)
-
-This approach was abandoned because [reason]. See 0007 for current approach.
-```
+- **Surfacing resolved conflicts.** If during the session Sean and Claude considered three approaches and picked one, the rejected approaches don't go in the log. They might go in the chosen approach's ADR ("Options considered"), but the session log just records what was chosen.
+- **Padding with context already in ADRs.** The log links; the ADR is the source.
+- **Skipping the "Still open" section.** Open questions are the most useful part for the next session.
 
 ---
 
-## Naming Convention
+## Related skills
 
-```
-{NNNN}-{short-description}.md
-
-0001-use-astro-framework.md
-0002-timestamp-migrations.md
-0003-approved-users-safelist.md
-```
-
-Keep numbers sequential within the project (unlike migrations).
-
----
-
-## Template
-
-```markdown
-# {NUMBER}. {TITLE}
-
-Date: {YYYY-MM-DD}
-Status: accepted
-
-## Context
-
-{1-3 paragraphs explaining the situation}
-
-## Decision
-
-{1-2 paragraphs explaining what we decided}
-
-## Consequences
-
-**Easier:**
-
-- {benefit}
-- {benefit}
-
-**Harder:**
-
-- {trade-off}
-- {trade-off}
-```
-
----
-
-## Anti-Patterns
-
-- **Writing ADRs after the fact** - Write them when making the decision
-- **Too much detail** - Keep it scannable; link to external docs if needed
-- **No consequences section** - Trade-offs are the most valuable part
-- **Deleting old records** - Supersede them instead
-- **Storing in .claude/** - Should be in version control, visible to all
-
----
-
-## Related Skills
-
-- `new-project` - Record framework selection decisions
-- `data-storage` - Record database schema decisions
-- `auth-design` - Record authentication approach decisions
+- `grill-me` — produces session logs at the end of every grill
+- `decision-log` — ADRs linked from session logs
+- `operating-principles` — living doc that session logs reference when "now" shifts
