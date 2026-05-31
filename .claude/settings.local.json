@@ -18,7 +18,16 @@
       "Bash(do jq:*)",
       "Bash(done)",
       "Bash(/dev/null -exec echo \"=== {} ===\" ; -exec cat {} ;)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(brew --version)",
+      "Bash(jq --version)",
+      "Bash(bash --version)",
+      "Bash(brew list *)",
+      "Bash(mkdir -p statusline)",
+      "Bash(cp ~/.claude/statusline.sh statusline/statusline.sh)",
+      "Bash(chmod +x statusline/install.sh statusline/statusline.sh)",
+      "Bash(bash -n statusline/install.sh)",
+      "Bash(git push *)"
     ]
   }
 }
