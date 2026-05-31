@@ -140,10 +140,10 @@ npm run db:studio
 
 ### Auth Section
 
-When using Neon Auth:
+When using Netlify Identity:
 
 ```markdown
-- **Auth:** Neon Auth with Google OAuth
+- **Auth:** Netlify Identity with Google OAuth
 ```
 
 ### Skills List by Project Type
@@ -199,7 +199,7 @@ When Sean wants to align on upcoming work, he uses `/grill-me`.
 - **Styling:** Tailwind CSS v4
 - **Hosting:** Netlify
 - **Database:** Netlify DB (Neon) with Drizzle ORM
-- **Auth:** Neon Auth with Google OAuth
+- **Auth:** Netlify Identity with Google OAuth
 
 ## Development
 
@@ -268,7 +268,7 @@ When generating CLAUDE.md for a new project:
 
 1. **Determine framework** from project setup decisions
 2. **Include database section** if using Netlify DB
-3. **Include auth section** if using Neon Auth
+3. **Include auth section** if using Netlify Identity
 4. **Select relevant skills** based on project features
 5. **Add project-specific conventions** based on folder structure
 6. **Include the Project Documentation block** in every generated CLAUDE.md, even if `docs/principles.md` doesn't exist yet — its presence in CLAUDE.md is a forcing function to create one.

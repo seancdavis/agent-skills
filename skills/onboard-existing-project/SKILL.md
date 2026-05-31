@@ -3,6 +3,12 @@ name: onboard-existing-project
 description: Onboards an existing project to use the seancdavis-skills plugin. Use after installing the plugin in an existing codebase. Assesses framework choice and existing patterns, adds skills reference to CLAUDE.md, audits for conflicting instructions, and updates or removes outdated content. Invoke with `/onboard-existing-project` after running `/plugin install seancdavis-skills`.
 ---
 
+## Assumed companions
+
+These skills layer Sean's opinions on top of Netlify's official skills. Assume Netlify's `netlify-functions`, `netlify-blobs`, `netlify-database`, `netlify-image-cdn`, `netlify-ai-gateway`, `netlify-identity`, etc. are also installed and are the source of truth for platform mechanics. This plugin only covers conventions on top of those.
+
+---
+
 ## Step 1: Assess Framework and Technologies
 
 Read these files to determine the framework and relevant skills:
@@ -21,7 +27,7 @@ ls *.config.* 2>/dev/null # Config files present
 | If you find...                          | Additional skill                         |
 | --------------------------------------- | ---------------------------------------- |
 | `drizzle-orm` or `db/schema.*`          | `data-storage`                           |
-| `@neondatabase/toolkit` or `neon_auth`  | `auth-design`                            |
+| `@netlify/identity` or `[identity]` block in `netlify.toml` | `auth-design`        |
 | `@netlify/blobs`                        | `file-storage`                           |
 | `@netlify/functions` or `netlify/functions/` | `netlify-functions`                 |
 | `tailwindcss`                           | `ui-design`                              |
@@ -96,7 +102,7 @@ Review existing CLAUDE.md sections against skills:
 | ----------------- | --------------------- | ---------- |
 | Routing conventions | `routing-design` | Remove if matches skill, keep exceptions |
 | Database/ORM setup | `data-storage` | Remove generic, keep project-specific |
-| Auth instructions | `auth-design` | Remove if using Neon Auth |
+| Auth instructions | `auth-design` | Remove if using Netlify Identity |
 | Form patterns | `forms` | Remove if standard HTTP/JSON pattern |
 | Deployment info | `netlify-functions` | Remove boilerplate |
 

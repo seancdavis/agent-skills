@@ -7,6 +7,8 @@ description: Orchestrates creating new web application projects for Sean. Use wh
 
 This skill orchestrates the creation of new web application projects. It guides through framework selection, scaffolding, and infrastructure setup.
 
+These skills layer Sean's opinions on top of Netlify's official skills. Assume Netlify's `netlify-functions`, `netlify-blobs`, `netlify-database`, `netlify-image-cdn`, `netlify-ai-gateway`, `netlify-identity`, etc. are also installed and are the source of truth for platform mechanics.
+
 ---
 
 ## Phase 1: Planning
@@ -205,18 +207,7 @@ gh repo create {project-name} --private --source=. --push
    netlify link
    ```
 
-3. **Initialize Database (if using Netlify DB)**
-
-   ```bash
-   netlify db init
-   ```
-
-   - This provisions a Neon database
-   - Sets up Drizzle ORM automatically
-
-4. **Claim the Neon Database**
-   - Follow the prompt from `netlify db init`
-   - Or go to Netlify Dashboard → Site → Neon tab
+3. **Initialize Database (if using Netlify DB)** — follow Netlify's `netlify-database` skill for the current init command and any post-init claim steps.
 
 **Wait for Sean to confirm these steps are complete before proceeding.**
 
@@ -228,64 +219,11 @@ After Sean confirms setup is complete:
 
 ### If Using Netlify DB
 
-1. **Configure Drizzle for timestamp migrations:**
+Set up Drizzle per Netlify's `netlify-database` skill (config, scripts, connection). On top of that, apply the conventions in `data-storage`:
 
-```typescript
-// drizzle.config.ts
-import { defineConfig } from 'drizzle-kit';
-
-export default defineConfig({
-  dialect: 'postgresql',
-  dbCredentials: {
-    url: process.env.NETLIFY_DATABASE_URL!,
-  },
-  schema: './db/schema.ts',
-  out: './migrations',
-  migrations: {
-    prefix: 'timestamp',
-  },
-});
-```
-
-2. **Add database scripts to package.json:**
-
-```json
-{
-  "scripts": {
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "netlify dev:exec drizzle-kit migrate",
-    "db:migrate:prod": "node scripts/migrate-production.js --production",
-    "db:studio": "netlify dev:exec drizzle-kit studio"
-  }
-}
-```
-
-3. **Create production migration script:**
-
-```javascript
-// scripts/migrate-production.js
-import { execSync } from 'child_process';
-import readline from 'readline';
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
-console.log('\n⚠️  PRODUCTION DATABASE MIGRATION\n');
-console.log('This will run migrations against the PRODUCTION database.');
-console.log('Make sure you are on the main branch and have pulled latest.\n');
-
-rl.question('Type the project name to confirm: ', (answer) => {
-  if (answer === '{project-name}') {
-    console.log('\nRunning production migration...\n');
-    execSync('netlify exec drizzle-kit migrate', { stdio: 'inherit' });
-  } else {
-    console.log('\nMigration cancelled.');
-  }
-  rl.close();
-});
-```
+- Use `prefix: 'timestamp'` in `drizzle.config.ts` (see `data-storage` for the rationale)
+- Never use `db:push` after the initial migration
+- Every user-scoped table needs ownership filters on every query
 
 ### Generate CLAUDE.md
 
@@ -324,13 +262,11 @@ Based on the project requirements, implement patterns from:
 
 - [ ] Netlify site created and linked to GitHub
 - [ ] Local project linked (`netlify link`)
-- [ ] Database initialized (if needed)
-- [ ] Neon database claimed (if using DB)
+- [ ] Database initialized (if needed, per Netlify's `netlify-database` skill)
 
 ### Build
 
-- [ ] Drizzle configured with timestamp migrations
-- [ ] DB scripts added to package.json
+- [ ] DB conventions from `data-storage` applied (timestamp migrations, no `db:push`)
 - [ ] CLAUDE.md generated
 - [ ] Relevant skills applied
 - [ ] Initial commit pushed

@@ -1,235 +1,21 @@
 ---
 name: netlify-functions
-description: Correct implementation of Netlify Functions with modern TypeScript syntax. Use when creating API endpoints for Vite + React apps or mutation operations in Astro apps. Covers the modern default export pattern, Config type, path configuration, and common mistakes agents make with the syntax.
+description: Personal conventions for organizing Netlify Functions in TypeScript projects. Use when creating Netlify Functions (API endpoints for Vite + React apps, or mutation endpoints in Astro apps). Covers the _shared/ directory pattern, path-config-in-file convention, and a CRUD function template. Function syntax/setup itself is covered by Netlify's netlify-functions skill.
 ---
 
-# Netlify Functions
+# Netlify Functions — Conventions
 
-## Critical: Use Modern Syntax
+For function syntax (`default async` handler, `Config` export, `context.params`, etc.), see Netlify's `netlify-functions` skill.
 
-Agents frequently get this wrong. Here's the correct pattern:
-
-```typescript
-// netlify/functions/example.ts
-import type { Context, Config } from '@netlify/functions';
-
-export default async (request: Request, context: Context) => {
-  return new Response('Hello World');
-};
-
-export const config: Config = {
-  path: '/api/example',
-};
-```
-
-### What NOT to Do
-
-```typescript
-// ❌ WRONG: Legacy CommonJS syntax
-exports.handler = async (event, context) => {
-  return { statusCode: 200, body: "Hello" };
-};
-
-// ❌ WRONG: Named handler export
-export const handler = async (event, context) => { ... };
-
-// ❌ WRONG: Express-style response
-return res.status(200).json({ data });
-
-// ❌ WRONG: Manual URL path parsing for route params
-const pathParts = url.pathname.split("/");
-const id = pathParts[pathParts.length - 1];
-
-// ✅ RIGHT: Use context.params (matches path config)
-const { id } = context.params;
-```
+This file covers organizational conventions on top.
 
 ---
 
-## Function Structure
+## Put `path` config in the function file, not netlify.toml
 
-### Default Export (Handler)
-
-The handler receives standard Web API `Request` and Netlify `Context`:
+The route belongs next to the code that handles it. Open the file → see the route. Searching `netlify.toml` to find what `/api/items` maps to is friction nobody needs.
 
 ```typescript
-export default async (request: Request, context: Context) => {
-  // request: Standard Web API Request object
-  // context: Netlify-specific context (params, geo, etc.)
-
-  return new Response('Response body');
-};
-```
-
-### Config Export (Path Configuration)
-
-Define the route **inside the function file**:
-
-```typescript
-export const config: Config = {
-  path: '/api/users',
-  method: 'GET',
-};
-```
-
-This way, you open the file and immediately see its route.
-
----
-
-## Config Options
-
-```typescript
-export const config: Config = {
-  // Static path
-  path: '/api/items',
-
-  // Path with parameter
-  path: '/api/items/:id',
-
-  // Multiple parameters
-  path: '/api/posts/:postId/comments/:commentId',
-
-  // Catch-all
-  path: '/api/*',
-
-  // Single method
-  method: 'GET',
-
-  // Multiple methods
-  method: ['GET', 'POST', 'PUT', 'DELETE'],
-};
-```
-
----
-
-## Request Handling
-
-### Reading URL and Params
-
-```typescript
-export default async (request: Request, context: Context) => {
-  // URL info
-  const url = new URL(request.url);
-
-  // Query parameters
-  const page = url.searchParams.get('page') || '1';
-  const limit = url.searchParams.get('limit') || '10';
-
-  // Path parameters (from config path)
-  const { id } = context.params;
-
-  return Response.json({ id, page, limit });
-};
-
-export const config: Config = {
-  path: '/api/items/:id',
-  method: 'GET',
-};
-```
-
-### Reading Request Body
-
-```typescript
-export default async (request: Request, context: Context) => {
-  // JSON body
-  const body = await request.json();
-
-  // Form data
-  const formData = await request.formData();
-  const name = formData.get('name');
-
-  // Raw text
-  const text = await request.text();
-
-  return Response.json({ received: body });
-};
-```
-
-### Reading Headers
-
-```typescript
-export default async (request: Request, context: Context) => {
-  const authHeader = request.headers.get('Authorization');
-  const contentType = request.headers.get('Content-Type');
-
-  // Custom headers (e.g., from auth proxy)
-  const userId = request.headers.get('x-user-id');
-
-  return new Response('OK');
-};
-```
-
----
-
-## Response Patterns
-
-### JSON Response
-
-```typescript
-return Response.json({ id: 1, name: 'Item' });
-
-// With status code
-return Response.json({ error: 'Not found' }, { status: 404 });
-
-// With headers
-return Response.json(data, {
-  status: 200,
-  headers: {
-    'Cache-Control': 'public, max-age=3600',
-  },
-});
-```
-
-### Plain Text
-
-```typescript
-return new Response('Hello World');
-
-return new Response('Not found', { status: 404 });
-```
-
-### Redirect (Astro API routes typically return this)
-
-```typescript
-return Response.redirect(new URL('/success', request.url), 302);
-
-// Or using the request URL
-const url = new URL(request.url);
-return Response.redirect(`${url.origin}/success?message=done`, 302);
-```
-
-### Stream Response
-
-```typescript
-return new Response(readableStream, {
-  headers: {
-    'Content-Type': 'application/octet-stream',
-  },
-});
-```
-
----
-
-## Method Routing
-
-Handle multiple methods in one function:
-
-```typescript
-export default async (request: Request, context: Context) => {
-  const { id } = context.params;
-
-  switch (request.method) {
-    case 'GET':
-      return handleGet(id);
-    case 'PUT':
-      return handlePut(id, await request.json());
-    case 'DELETE':
-      return handleDelete(id);
-    default:
-      return new Response('Method not allowed', { status: 405 });
-  }
-};
-
 export const config: Config = {
   path: '/api/items/:id',
   method: ['GET', 'PUT', 'DELETE'],
@@ -238,7 +24,45 @@ export const config: Config = {
 
 ---
 
-## Full CRUD Example
+## `_shared/` directory for cross-function code
+
+Shared utilities live in `netlify/functions/_shared/`. The underscore prefix prevents Netlify from treating these files as functions themselves.
+
+```
+netlify/functions/
+├── _shared/
+│   ├── auth.ts
+│   ├── db.ts
+│   └── utils.ts
+├── items.ts
+└── upload.ts
+```
+
+Typical contents:
+
+- `_shared/db.ts` — exports a single `db` Drizzle instance + re-exports schema. Importing `db` here gives every function the same connection pattern.
+- `_shared/auth.ts` — exports `requireAuth(request)` returning `{ authenticated, userId, email, permissions }`. Every mutation function calls this at the top.
+- `_shared/utils.ts` — anything else shared. Stays small or splits into more focused files.
+
+---
+
+## Use `context.params`, never parse the URL yourself
+
+If the path is `/api/items/:id`, read `id` from `context.params`. Hand-rolled `url.pathname.split("/")` parsing is a smell — it duplicates what the config already declared and breaks the moment the route shape changes.
+
+```typescript
+// Good
+const { id } = context.params;
+
+// Bad
+const id = new URL(request.url).pathname.split('/').pop();
+```
+
+---
+
+## CRUD function template
+
+When a resource needs full CRUD, prefer one function file handling all methods (with `path: ['/api/items', '/api/items/:id']`) over splitting into 4 files. The auth check happens once, the file maps cleanly to the resource, and the route table stays compact.
 
 ```typescript
 // netlify/functions/items.ts
@@ -250,7 +74,6 @@ import { requireAuth } from './_shared/auth';
 export default async (request: Request, context: Context) => {
   const { id } = context.params;
 
-  // GET /api/items or GET /api/items/:id
   if (request.method === 'GET') {
     if (id) {
       const [item] = await db
@@ -258,55 +81,33 @@ export default async (request: Request, context: Context) => {
         .from(items)
         .where(eq(items.id, parseInt(id)))
         .limit(1);
-
-      if (!item) {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
+      if (!item) return Response.json({ error: 'Not found' }, { status: 404 });
       return Response.json(item);
     }
-
-    const allItems = await db.select().from(items);
-    return Response.json(allItems);
+    return Response.json(await db.select().from(items));
   }
 
-  // Auth required for mutations
   const auth = await requireAuth(request);
   if (!auth.authenticated) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // POST /api/items
   if (request.method === 'POST') {
-    const body = await request.json();
-    const [newItem] = await db.insert(items).values(body).returning();
+    const [newItem] = await db.insert(items).values(await request.json()).returning();
     return Response.json(newItem, { status: 201 });
   }
 
-  // PUT /api/items/:id
-  if (request.method === 'PUT') {
-    if (!id) {
-      return Response.json({ error: 'ID required' }, { status: 400 });
-    }
-
-    const body = await request.json();
+  if (request.method === 'PUT' && id) {
     const [updated] = await db
       .update(items)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...(await request.json()), updatedAt: new Date() })
       .where(eq(items.id, parseInt(id)))
       .returning();
-
-    if (!updated) {
-      return Response.json({ error: 'Not found' }, { status: 404 });
-    }
+    if (!updated) return Response.json({ error: 'Not found' }, { status: 404 });
     return Response.json(updated);
   }
 
-  // DELETE /api/items/:id
-  if (request.method === 'DELETE') {
-    if (!id) {
-      return Response.json({ error: 'ID required' }, { status: 400 });
-    }
-
+  if (request.method === 'DELETE' && id) {
     await db.delete(items).where(eq(items.id, parseInt(id)));
     return Response.json({ success: true });
   }
@@ -322,85 +123,8 @@ export const config: Config = {
 
 ---
 
-## Shared Utilities
+## Related
 
-Organize shared code in a `_shared` directory:
-
-```
-netlify/functions/
-├── _shared/
-│   ├── auth.ts
-│   ├── db.ts
-│   └── utils.ts
-├── items.ts
-├── users.ts
-└── upload.ts
-```
-
-```typescript
-// netlify/functions/_shared/db.ts
-import { neon } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-http';
-import * as schema from '../../../db/schema';
-
-const sql = neon(process.env.NETLIFY_DATABASE_URL!);
-export const db = drizzle(sql, { schema });
-export { schema };
-```
-
-```typescript
-// netlify/functions/_shared/auth.ts
-export async function requireAuth(request: Request) {
-  const userId = request.headers.get('x-user-id');
-  const email = request.headers.get('x-user-email');
-
-  if (!userId || !email) {
-    return { authenticated: false };
-  }
-
-  return { authenticated: true, userId, email };
-}
-```
-
----
-
-## File Location
-
-Functions go in `netlify/functions/`:
-
-```
-project/
-├── netlify/
-│   └── functions/
-│       ├── _shared/
-│       │   └── ...
-│       └── example.ts
-├── src/
-└── netlify.toml
-```
-
-Configure in `netlify.toml`:
-
-```toml
-[build]
-  functions = "netlify/functions"
-```
-
----
-
-## Anti-Patterns
-
-- **Using legacy `exports.handler` syntax** - Use default export
-- **Using Express-style `res.json()`** - Use `Response.json()`
-- **Not configuring path in function file** - Always export config
-- **Putting path in netlify.toml** - Put it in the function file
-- **Using `.mjs` extension** - Use `.ts` with TypeScript
-
----
-
-## Related Skills
-
-- `vite-best-practices` - Integrating functions with React
-- `astro-best-practices` - When to use functions vs API routes
-- `auth-design` - Protecting function endpoints
-- `data-storage` - Database access in functions
+- Netlify's `netlify-functions` skill — function syntax and platform mechanics
+- `auth-design` — `_shared/auth.ts` content
+- `data-storage` — `_shared/db.ts` content
