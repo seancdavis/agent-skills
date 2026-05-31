@@ -3,6 +3,12 @@ name: onboard-existing-project
 description: Onboards an existing project to use the seancdavis-skills plugin. Use after installing the plugin in an existing codebase. Assesses framework choice and existing patterns, adds skills reference to CLAUDE.md, audits for conflicting instructions, and updates or removes outdated content. Invoke with `/onboard-existing-project` after running `/plugin install seancdavis-skills`.
 ---
 
+## Assumed companions
+
+These skills layer Sean's opinions on top of Netlify's official skills. Assume Netlify's `netlify-functions`, `netlify-blobs`, `netlify-database`, `netlify-image-cdn`, `netlify-ai-gateway`, `netlify-identity`, etc. are also installed and are the source of truth for platform mechanics. This plugin only covers conventions on top of those.
+
+---
+
 ## Step 1: Assess Framework and Technologies
 
 Read these files to determine the framework and relevant skills:
