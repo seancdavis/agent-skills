@@ -27,7 +27,15 @@
       "Bash(cp ~/.claude/statusline.sh statusline/statusline.sh)",
       "Bash(chmod +x statusline/install.sh statusline/statusline.sh)",
       "Bash(bash -n statusline/install.sh)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(curl -sL https://api.github.com/repos/netlify/context-and-tools/contents/skills)",
+      "Bash(curl -sL https://raw.githubusercontent.com/netlify/context-and-tools/main/skills/netlify-functions/SKILL.md)",
+      "Bash(awk '{print $2}')",
+      "Bash(git checkout *)",
+      "Bash(curl *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(awk '/^## Related/,0' __TRACKED_VAR__/SKILL.md)"
     ]
   }
 }

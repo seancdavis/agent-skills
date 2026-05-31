@@ -4,17 +4,18 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opin
 
 ## What's Included
 
-20 skills covering the full web development lifecycle:
+24 skills covering the full web development lifecycle:
 
 | Category | Skills |
 |----------|--------|
-| **Project Setup** | New project scaffolding, CLAUDE.md generation |
+| **Project Setup** | New project scaffolding, CLAUDE.md generation, existing-project onboarding |
 | **Frameworks** | Astro SSR patterns, Vite+React with React Router |
 | **Architecture** | Rails-style routing, component design, skeleton patterns |
-| **Auth** | Neon Auth with Google OAuth, approved users safelist |
+| **Auth** | Netlify Identity with Google OAuth, approved users safelist |
 | **Data** | Netlify DB + Drizzle ORM, Netlify Blobs, image CDN |
 | **UX** | Forms, toast notifications, feedback patterns |
-| **Operations** | Logging, environment variables, ADRs |
+| **Operations** | Logging, environment variables |
+| **Project Documentation** | Grill-me interviews, session logs, ADRs, living principles doc |
 | **Extras** | AI workflows, transactional email, SEO |
 
 ## Installation
@@ -53,6 +54,7 @@ Skills are invoked automatically by Claude based on context, or manually:
 | Skill | Description |
 |-------|-------------|
 | `new-project` | Scaffolds new Astro or Vite+React projects with Netlify deployment |
+| `onboard-existing-project` | Integrates skills into existing codebases; audits CLAUDE.md for conflicts |
 | `claude-md-template` | Template for generating CLAUDE.md in new projects |
 
 ### Frameworks
@@ -73,7 +75,7 @@ Skills are invoked automatically by Claude based on context, or manually:
 
 | Skill | Description |
 |-------|-------------|
-| `auth-design` | Neon Auth with Google OAuth, approved users safelist |
+| `auth-design` | Netlify Identity with Google OAuth, approved users safelist |
 | `feedback` | Toast notifications, query param messages |
 | `forms` | HTTP forms (Astro) vs JSON forms (React) |
 
@@ -92,7 +94,15 @@ Skills are invoked automatically by Claude based on context, or manually:
 |-------|-------------|
 | `logging-and-monitoring` | Three-level logging, scoped loggers |
 | `environment-variables` | Netlify CLI management |
-| `paper-trail` | Architecture Decision Records (ADR) |
+
+### Project Documentation
+
+| Skill | Description |
+|-------|-------------|
+| `grill-me` | `/grill-me` slash command — free-form pre-execution alignment interview |
+| `paper-trail` | Per-session log format, stored in `docs/sessions/` |
+| `decision-log` | Architecture Decision Records (ADRs), stored in `docs/decisions/` |
+| `operating-principles` | Living current-state doc at `docs/principles.md` |
 
 ### Supplementary
 
@@ -120,7 +130,7 @@ These skills are designed for projects using:
 - **Frameworks:** [Astro](https://astro.build) or [Vite](https://vitejs.dev) + [React](https://react.dev)
 - **Deployment:** [Netlify](https://netlify.com)
 - **Database:** [Netlify DB](https://docs.netlify.com/database/overview/) (Neon Postgres) + [Drizzle ORM](https://orm.drizzle.team)
-- **Auth:** [Neon Auth](https://neon.tech/docs/guides/neon-auth-tutorial) with Google OAuth
+- **Auth:** [Netlify Identity](https://docs.netlify.com/manage/security/identity/) with Google OAuth
 - **Styling:** [Tailwind CSS v4](https://tailwindcss.com)
 
 ## Development

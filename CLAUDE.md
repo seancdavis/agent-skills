@@ -73,7 +73,7 @@ Claude will also automatically invoke skills based on context.
 ### Auth & UX
 | Skill | Description |
 |-------|-------------|
-| `auth-design` | Neon Auth with Google OAuth, approved users safelist |
+| `auth-design` | Netlify Identity with Google OAuth, approved users safelist |
 | `feedback` | Toast notifications, query param messages |
 | `forms` | HTTP forms (Astro) vs JSON forms (React) |
 
@@ -90,7 +90,14 @@ Claude will also automatically invoke skills based on context.
 |-------|-------------|
 | `logging-and-monitoring` | Three-level logging, scoped loggers |
 | `environment-variables` | Netlify CLI management |
-| `paper-trail` | Architecture Decision Records (ADR) |
+
+### Project Documentation
+| Skill | Description |
+|-------|-------------|
+| `grill-me` | Slash command for pre-execution alignment interviews |
+| `paper-trail` | Per-session log of grill outcomes (`docs/sessions/`) |
+| `decision-log` | Architecture Decision Records (`docs/decisions/`) |
+| `operating-principles` | Living current-state doc (`docs/principles.md`) |
 
 ### Supplementary
 | Skill | Description |
