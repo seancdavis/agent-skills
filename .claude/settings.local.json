@@ -35,7 +35,9 @@
       "Bash(curl *)",
       "Bash(git pull *)",
       "Bash(git stash *)",
-      "Bash(awk '/^## Related/,0' __TRACKED_VAR__/SKILL.md)"
+      "Bash(awk '/^## Related/,0' __TRACKED_VAR__/SKILL.md)",
+      "Bash(gh issue *)",
+      "Bash(gh label *)"
     ]
   }
 }
