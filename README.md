@@ -4,7 +4,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opin
 
 ## What's Included
 
-24 skills covering the full web development lifecycle:
+25 skills covering the full web development lifecycle:
 
 | Category | Skills |
 |----------|--------|
@@ -17,6 +17,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opin
 | **Operations** | Logging, environment variables |
 | **Project Documentation** | Grill-me interviews, session logs, ADRs, living principles doc |
 | **Extras** | AI workflows, transactional email, SEO |
+| **Utilities** | Copy conversation output to the clipboard as Markdown |
 
 ## Installation
 
@@ -112,6 +113,12 @@ Skills are invoked automatically by Claude based on context, or manually:
 | `email` | Transactional email with Resend |
 | `seo` | Meta tags, Open Graph, structured data |
 | `ui-design` | Tailwind CSS v4, accessibility baseline |
+
+### Utilities
+
+| Skill | Description |
+|-------|-------------|
+| `copy` | `/copy` slash command — copy conversation output to the system clipboard as raw Markdown |
 
 ## Status Line
 

@@ -107,6 +107,11 @@ Claude will also automatically invoke skills based on context.
 | `seo` | Meta tags, Open Graph, structured data |
 | `ui-design` | Tailwind CSS v4, accessibility baseline |
 
+### Utilities
+| Skill | Description |
+|-------|-------------|
+| `copy` | `/copy` — copy conversation output to the system clipboard as raw Markdown (general-purpose, not web-dev-specific) |
+
 ## Project Structure
 
 ```
