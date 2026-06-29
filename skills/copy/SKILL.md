@@ -9,9 +9,11 @@ Put the **raw Markdown source** of conversation output onto the system clipboard
 
 ## What to copy
 
-- **Default:** the most recent substantial thing you produced — the last answer, artifact, or deliverable.
-- **If the user names a target** ("the table above", "that code block", "your last two messages"), copy exactly that.
-- **If it's genuinely ambiguous** (several candidates, nothing obvious), ask one quick question instead of guessing.
+Any text after `/copy` is a **natural-language description of what to copy** — treat it as the target selector, not a count or an index. `/copy the SQL query` means copy the SQL query; `/copy your last two messages` means copy those two messages; `/copy just the bash function` means copy that function. A bare number is a description too, never a quantity: `/copy 2` means "the thing labeled 2" (a list item, a step, a code block #2) — if there's no such thing, ask rather than copying the last 2 of anything.
+
+- **No argument:** copy the most recent substantial thing you produced — the last answer, artifact, or deliverable.
+- **Argument present:** copy exactly what it describes. Resolve it against the conversation; the argument tells you _which_ content, not _how much_.
+- **Genuinely ambiguous** (the description matches several candidates, or matches nothing): ask one quick question instead of guessing.
 
 Copy the Markdown _source_ — headings as `#`, lists as `-`, code in fenced blocks — not a re-rendered or re-summarized version. Don't add a preamble or commentary; copy the content itself.
 
