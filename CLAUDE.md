@@ -10,7 +10,7 @@ Add this repository as a marketplace, then install the plugin:
 
 ```bash
 # Add marketplace
-/plugin marketplace add seancdavis/claude-skills
+/plugin marketplace add seancdavis/agent-skills
 
 # Install plugin (choose "user" scope for global)
 /plugin install seancdavis-skills
@@ -22,7 +22,7 @@ For a specific project, install with "project" or "local" scope:
 
 ```bash
 # Add marketplace (if not already added)
-/plugin marketplace add seancdavis/claude-skills
+/plugin marketplace add seancdavis/agent-skills
 
 # Install for this project only
 /plugin install seancdavis-skills
@@ -52,65 +52,75 @@ Claude will also automatically invoke skills based on context.
 ## Available Skills
 
 ### Orchestration
-| Skill | Description |
-|-------|-------------|
-| `claude-md-template` | Template for generating CLAUDE.md in new projects |
-| `new-project` | Scaffolds new Astro or Vite+React projects |
+
+| Skill                      | Description                                                              |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `claude-md-template`       | Template for generating CLAUDE.md in new projects                        |
+| `new-project`              | Scaffolds new Astro or Vite+React projects                               |
 | `onboard-existing-project` | Integrates skills into existing projects, audits CLAUDE.md for conflicts |
 
 ### Frameworks
-| Skill | Description |
-|-------|-------------|
-| `astro-best-practices` | Astro patterns: Netlify adapter, React islands, SSR |
-| `vite-best-practices` | Vite+React patterns: React Router, progressive rendering |
+
+| Skill                  | Description                                              |
+| ---------------------- | -------------------------------------------------------- |
+| `astro-best-practices` | Astro patterns: Netlify adapter, React islands, SSR      |
+| `vite-best-practices`  | Vite+React patterns: React Router, progressive rendering |
 
 ### Architecture
-| Skill | Description |
-|-------|-------------|
-| `routing-design` | Rails-style CRUD routes, URL conventions |
+
+| Skill              | Description                               |
+| ------------------ | ----------------------------------------- |
+| `routing-design`   | Rails-style CRUD routes, URL conventions  |
 | `component-design` | Component architecture, skeleton patterns |
 
 ### Auth & UX
-| Skill | Description |
-|-------|-------------|
+
+| Skill         | Description                                                 |
+| ------------- | ----------------------------------------------------------- |
 | `auth-design` | Netlify Identity with Google OAuth, approved users safelist |
-| `feedback` | Toast notifications, query param messages |
-| `forms` | HTTP forms (Astro) vs JSON forms (React) |
+| `feedback`    | Toast notifications, query param messages                   |
+| `forms`       | HTTP forms (Astro) vs JSON forms (React)                    |
 
 ### Data Infrastructure
-| Skill | Description |
-|-------|-------------|
-| `data-storage` | Netlify DB + Drizzle ORM, migrations |
-| `file-storage` | Netlify Blobs for non-image files |
+
+| Skill               | Description                                      |
+| ------------------- | ------------------------------------------------ |
+| `data-storage`      | Netlify DB + Drizzle ORM, migrations             |
+| `file-storage`      | Netlify Blobs for non-image files                |
 | `netlify-functions` | Modern function syntax (default exports, Config) |
-| `netlify-images` | Image upload, storage, CDN optimization |
+| `netlify-images`    | Image upload, storage, CDN optimization          |
 
 ### Operations
-| Skill | Description |
-|-------|-------------|
+
+| Skill                    | Description                         |
+| ------------------------ | ----------------------------------- |
 | `logging-and-monitoring` | Three-level logging, scoped loggers |
-| `environment-variables` | Netlify CLI management |
+| `environment-variables`  | Netlify CLI management              |
 
 ### Project Documentation
-| Skill | Description |
-|-------|-------------|
-| `grill-me` | Slash command for pre-execution alignment interviews |
-| `paper-trail` | Per-session log of grill outcomes (`docs/sessions/`) |
-| `decision-log` | Architecture Decision Records (`docs/decisions/`) |
-| `operating-principles` | Living current-state doc (`docs/principles.md`) |
+
+| Skill                  | Description                                          |
+| ---------------------- | ---------------------------------------------------- |
+| `grill-me`             | Slash command for pre-execution alignment interviews |
+| `paper-trail`          | Per-session log of grill outcomes (`docs/sessions/`) |
+| `decision-log`         | Architecture Decision Records (`docs/decisions/`)    |
+| `operating-principles` | Living current-state doc (`docs/principles.md`)      |
 
 ### Supplementary
-| Skill | Description |
-|-------|-------------|
+
+| Skill          | Description                               |
+| -------------- | ----------------------------------------- |
 | `ai-workflows` | Netlify AI Gateway, Anthropic/OpenAI SDKs |
-| `email` | Transactional email with Resend |
-| `seo` | Meta tags, Open Graph, structured data |
-| `ui-design` | Tailwind CSS v4, accessibility baseline |
+| `email`        | Transactional email with Resend           |
+| `seo`          | Meta tags, Open Graph, structured data    |
+| `ui-design`    | Tailwind CSS v4, accessibility baseline   |
 
 ### Utilities
-| Skill | Description |
-|-------|-------------|
-| `copy` | `/copy` — copy conversation output to the system clipboard as raw Markdown (general-purpose, not web-dev-specific) |
+
+| Skill     | Description                                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `copy`    | `/copy` — copy conversation output to the system clipboard as raw Markdown (general-purpose, not web-dev-specific)       |
+| `release` | `/release` — bump the plugin version across both manifests, update `CHANGELOG.md`, commit, and tag (user-invocable only) |
 
 ## Project Structure
 
