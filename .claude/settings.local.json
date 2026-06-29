@@ -38,7 +38,9 @@
       "Bash(awk '/^## Related/,0' __TRACKED_VAR__/SKILL.md)",
       "Bash(gh issue *)",
       "Bash(gh label *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Read(//Users/seancdavis/.claude/plugins/**)",
+      "Read(//Users/seancdavis/.claude/**)"
     ]
   }
 }
