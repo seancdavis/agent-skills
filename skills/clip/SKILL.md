@@ -19,23 +19,20 @@ Copy the Markdown _source_ — headings as `#`, lists as `-`, code in fenced blo
 
 ## How to copy
 
-Write the content to a temp file, then pipe that file into the platform's clipboard tool. Using a file (not `echo` or a heredoc) avoids shell-escaping problems with backticks, quotes, and newlines.
+Two steps: write a temp file, then one command to copy it. Writing the Markdown to a file (instead of `echo` or a heredoc) avoids shell-escaping problems with backticks, quotes, and newlines.
 
 1. Write the exact Markdown to a temp file with the Write tool.
-2. Pipe it to the clipboard, detecting the available tool:
+2. Copy it with a single command — on macOS:
 
-```sh
-f=/path/to/your/tempfile.md   # the file you just wrote
-if   command -v pbcopy   >/dev/null 2>&1; then pbcopy   < "$f"
-elif command -v wl-copy  >/dev/null 2>&1; then wl-copy  < "$f"
-elif command -v xclip    >/dev/null 2>&1; then xclip -selection clipboard < "$f"
-elif command -v xsel     >/dev/null 2>&1; then xsel --clipboard --input   < "$f"
-elif command -v clip.exe >/dev/null 2>&1; then clip.exe < "$f"
-else echo "No clipboard tool found"; fi
-```
+   ```sh
+   pbcopy < /path/to/tempfile.md
+   ```
 
-3. Delete the temp file.
-4. Confirm in one line — what was copied and its size, e.g. `Copied to clipboard — 42 lines of Markdown.`
+   Not on macOS? Read from the same file with the platform's tool instead: `wl-copy < file`, `xclip -selection clipboard < file`, `xsel --clipboard --input < file`, or `clip.exe < file`.
+
+3. Confirm in one line, e.g. `Copied to clipboard — 42 lines of Markdown.`
+
+Keep the command to that single `pbcopy < file` line — no tool-detection cascade, no `wc`/`rm` afterthoughts. A clean one-liner is allowlistable (so it stops prompting) and easy to read. The temp file lives in the session scratchpad and is cleaned up automatically; no need to delete it.
 
 ## When it can't
 
