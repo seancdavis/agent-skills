@@ -17,7 +17,7 @@ disagreed). Going forward, use the `/release` skill to cut versions.
 
 - `/release` skill — bumps the version in both manifests, updates this
   changelog, commits, and tags in one consistent step.
-- `/copy` skill — copy conversation output to the system clipboard as raw Markdown.
+- `/clip` skill — copy conversation output to the system clipboard as raw Markdown.
 
 ### Changed
 
@@ -26,5 +26,6 @@ disagreed). Going forward, use the `/release` skill to cut versions.
 
 ### Fixed
 
-- `/copy` now treats the text after the command as a description of _what_ to
-  copy, rather than misreading a bare argument as a message count.
+- `/clip` (formerly `/copy`) treats the text after the command as a description
+  of _what_ to copy, rather than misreading a bare argument as a message count.
+  Renamed from `/copy` to avoid collision with the built-in `/copy` command.
