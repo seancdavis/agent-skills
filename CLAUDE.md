@@ -119,7 +119,7 @@ Claude will also automatically invoke skills based on context.
 
 | Skill     | Description                                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `copy`    | `/copy` — copy conversation output to the system clipboard as raw Markdown (general-purpose, not web-dev-specific)       |
+| `clip`    | `/clip` — copy conversation output to the system clipboard as raw Markdown (general-purpose, not web-dev-specific)       |
 | `release` | `/release` — bump the plugin version across both manifests, update `CHANGELOG.md`, commit, and tag (user-invocable only) |
 
 ## Project Structure

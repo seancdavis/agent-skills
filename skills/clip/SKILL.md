@@ -1,15 +1,15 @@
 ---
-name: copy
-description: Copy conversation output to the system clipboard as raw Markdown. Invoke when the user types `/copy` or asks to "copy that to my clipboard", "put that on my clipboard", "copy the answer/table/code as markdown", or "pbcopy this" — i.e. they want the Markdown source of something in this conversation (the last response by default, or a part they name) placed on the OS clipboard so it pastes cleanly into a doc, issue, or note. NOT for copying files between locations (that is `cp`).
+name: clip
+description: Copy conversation output to the system clipboard as raw Markdown. Invoke when the user types `/clip` (optionally followed by a description of what to copy) or asks to "copy that to my clipboard", "put that on my clipboard", "copy the answer/table/code as markdown", or "pbcopy this" — i.e. they want the Markdown source of something in this conversation (the last response by default, or a part they name) placed on the OS clipboard so it pastes cleanly into a doc, issue, or note. NOT for copying files between locations (that is `cp`).
 ---
 
-# Copy
+# Clip
 
 Put the **raw Markdown source** of conversation output onto the system clipboard. The terminal renders Markdown styled, which doesn't paste cleanly elsewhere — this copies the underlying source so it lands as clean Markdown in docs, issues, Slack, or notes.
 
 ## What to copy
 
-Any text after `/copy` is a **natural-language description of what to copy** — treat it as the target selector, not a count or an index. `/copy the SQL query` means copy the SQL query; `/copy your last two messages` means copy those two messages; `/copy just the bash function` means copy that function. A bare number is a description too, never a quantity: `/copy 2` means "the thing labeled 2" (a list item, a step, a code block #2) — if there's no such thing, ask rather than copying the last 2 of anything.
+Any text after `/clip` is a **natural-language description of what to copy** — treat it as the target selector, not a count or an index. `/clip the SQL query` means copy the SQL query; `/clip your last two messages` means copy those two messages; `/clip just the bash function` means copy that function. A bare number is a description too, never a quantity: `/clip 2` means "the thing labeled 2" (a list item, a step, a code block #2) — if there's no such thing, ask rather than copying the last 2 of anything.
 
 - **No argument:** copy the most recent substantial thing you produced — the last answer, artifact, or deliverable.
 - **Argument present:** copy exactly what it describes. Resolve it against the conversation; the argument tells you _which_ content, not _how much_.
