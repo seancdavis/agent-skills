@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
-## [0.2.0] - 2026-06-29
+## [0.2.0] - 2026-06-30
 
 Baseline release. Resets versioning to the `0.x` line and reconciles the
 version across both manifests (previously `plugin.json` and `marketplace.json`
