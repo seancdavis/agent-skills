@@ -40,7 +40,8 @@
       "Bash(gh label *)",
       "Bash(git *)",
       "Read(//Users/seancdavis/.claude/plugins/**)",
-      "Read(//Users/seancdavis/.claude/**)"
+      "Read(//Users/seancdavis/.claude/**)",
+      "Skill(update-config)"
     ]
   }
 }
