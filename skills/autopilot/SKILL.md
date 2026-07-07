@@ -1,6 +1,6 @@
 ---
 name: autopilot
-description: The unattended build-and-audit run — the "you're gone" half of the flow. Invoked by `preflight`'s handoff, or with `/autopilot` pointed at a settled spec, when Sean has walked away. The orchestrator coordinates without writing code or auditing itself: it dispatches a Claude developer subagent to implement per the spec, fires Codex as a strictly read-only auditor on focused simplicity and security passes, triages the findings with judgment, loops real fixes back to the developer, and leaves a report for Sean's return. Works on a branch; never pushes, opens PRs, or deploys. The auditor never fixes. For the interactive setup that precedes this, see `preflight`.
+description: The unattended build-and-audit run — the "you're gone" half of the flow. Invoked by `preflight`'s handoff, or with `/autopilot` pointed at a settled spec, when Sean has walked away. The orchestrator coordinates without writing code or auditing itself: it dispatches a Claude developer subagent to implement per the spec, fires Codex as a strictly read-only auditor on focused simplicity and security passes, triages the findings with judgment, loops real fixes back to the developer, and leaves a report for Sean's return. Works on a branch and ends by opening a draft PR (which fires the deploy preview) for the human's review; never merges or deploys. The auditor never fixes. For the interactive setup that precedes this, see `preflight`.
 ---
 
 # Autopilot — the unattended run
@@ -11,7 +11,7 @@ Nobody is watching. Sean set the work up in `preflight`, hit the walk-away line,
 
 1. **The orchestrator judges — it does not write code, and it does not audit.** You dispatch a developer to write and Codex to audit. Your work is the judgment *between* their outputs. You stay out of writing so you can weigh the audit impartially; you stay out of auditing so a second, independent model catches what you'd miss.
 2. **The auditor is read-only, always.** Codex reviews and reports. It never edits. This is structural (see the invocation below), not a promise — but never route audits through anything that can write.
-3. **Never ship.** Work on a branch, commit at clean points, and stop. No push, no PR, no deploy. That's Sean's call when he's back.
+3. **Never ship.** Work on a branch and commit at clean points. Ending the run means pushing the branch and opening a **draft PR** for review (Phase 5) — that's the handoff, not the ship. Never merge the PR and never deploy; those stay the human's calls after review.
 
 ## Preconditions — fail safe, because no one's here
 
@@ -62,21 +62,22 @@ Produce a **judged action list** ranked by severity — only the findings a deve
 
 Send the judged findings back to the **developer** subagent to fix (again: you don't fix them yourself). Then re-audit — the follow-up passes are diff-focused: "here's what changed, check it against history." Loop until both lenses come back clean **or** you hit the spec's loop bound (default 3 rounds). Don't loop forever chasing a zero while Sean's away; a bounded stop with an honest report is the correct outcome.
 
-## Phase 5 — Report and stop
+## Phase 5 — Open the PR and stop
 
-Write a report to `docs/autopilot/{YYYY-MM-DD}-{slug}-report.md` and summarize it in chat for when Sean returns:
+Close the run by handing off through the `open-pr` skill: push the branch and open a **draft PR** for review. On Netlify (and similar), the PR is what triggers the deploy preview Sean needs for his smoke test — so opening it *is* the handoff, not a violation of "never ship."
 
-- **What was built** — against the spec's intent and done-signal.
-- **Audit history** — the passes run, per lens, per round.
-- **Findings** — fixed vs. deliberately deferred, each with why (this is your judgment on the record).
-- **Residual risks** — what you'd want Sean to look at during his manual test.
-- **Branch** — its name and state, ready for him to test and ship.
+The PR body is the report, kept to `open-pr`'s concise convention (summary + what changed), plus a short **verify** note carrying the two things Sean most needs:
 
-Then stop. Do not push, PR, or deploy.
+- **What to check** — the deploy-preview smoke test, and specifically anything the run *couldn't* self-verify (e.g. DB-query wiring, `.astro` UX where the repo has no route/query tests by convention).
+- **Findings deferred** — anything real you chose not to fix, and why.
+
+Keep the deeper detail (full audit history, per-round findings) in `docs/autopilot/{YYYY-MM-DD}-{slug}-report.md` and link it from the PR rather than pasting it all in — the PR stays skimmable.
+
+Then stop. Never merge the PR and never deploy — Sean reviews the preview and ships.
 
 ## Guardrails, in one place
 
-- Branch only; commit at clean points; never push/PR/deploy.
+- Work on a branch; commit at clean points; end by pushing + opening a **draft PR** (via `open-pr`). Never merge or deploy.
 - Orchestrator never edits code and never audits.
 - Auditor is read-only (`task` without `--write`); developer and auditor are different models.
 - Bounded loop; stop-and-note on anything the spec can't resolve.
@@ -85,7 +86,7 @@ Then stop. Do not push, PR, or deploy.
 
 Autopilot only walks away cleanly if nothing blocks on a human approval — and the Codex audit is just the first of several: the developer subagent's edits, the test run, and the git commits would all prompt too. Two ways to run it:
 
-- **Unattended → bypass-in-a-sandbox.** Launch the session in bypass-permissions mode. That sounds reckless but it fits autopilot's design: it works on a branch, never pushes/PRs/deploys, and you review the branch before it ships — so the blast radius is one branch you inspect. Lean on the guardrails as the safety net instead of approving command by command.
+- **Unattended → bypass-in-a-sandbox.** Launch the session in bypass-permissions mode. That sounds reckless but it fits autopilot's design: it works on a branch, opens only a draft PR (never merges or deploys), and you review before it ships — so the blast radius is one branch you inspect. Lean on the guardrails as the safety net instead of approving command by command.
 - **Attended → allowlist the audit command.** When you're around, a `permissions.allow` rule for the `codex-audit.mjs` wrapper stops the audit from nagging while everything else still prompts (the recommended entries live in your user settings). This works only because the audit is a single clean `node …` command — a compound `$(…)`/piped command can't be allowlisted at all.
 
 Either way the read-only auditor guarantee holds: `task` without `--write` can't modify files regardless of permission mode.
