@@ -81,6 +81,15 @@ Then stop. Do not push, PR, or deploy.
 - Auditor is read-only (`task` without `--write`); developer and auditor are different models.
 - Bounded loop; stop-and-note on anything the spec can't resolve.
 
+## Permissions — how to launch it unattended
+
+Autopilot only walks away cleanly if nothing blocks on a human approval — and the Codex audit is just the first of several: the developer subagent's edits, the test run, and the git commits would all prompt too. Two ways to run it:
+
+- **Unattended → bypass-in-a-sandbox.** Launch the session in bypass-permissions mode. That sounds reckless but it fits autopilot's design: it works on a branch, never pushes/PRs/deploys, and you review the branch before it ships — so the blast radius is one branch you inspect. Lean on the guardrails as the safety net instead of approving command by command.
+- **Attended → allowlist the audit command.** When you're around, a `permissions.allow` rule for the `codex-audit.mjs` wrapper stops the audit from nagging while everything else still prompts (the recommended entries live in your user settings). This works only because the audit is a single clean `node …` command — a compound `$(…)`/piped command can't be allowlisted at all.
+
+Either way the read-only auditor guarantee holds: `task` without `--write` can't modify files regardless of permission mode.
+
 ## Related skills
 
 - `preflight` — the interactive setup and spec that this consumes.
