@@ -18,12 +18,11 @@ The orchestrator scopes the question and synthesizes the findings. It does **not
 - **Orchestrator** — this session (high-taste). Decomposes the question, dispatches scanners, and synthesizes. Its only heavy lift is the synthesis.
 - **Scanners** — cheap and focused:
   - **Sonnet / Haiku subagents** (`Agent`, model `sonnet` or `haiku`) run in parallel, one per slice. Default for a decomposable question.
-  - **Codex, read-only** for a single very broad sweep — generous limits make it well suited to "read across everything once." Same read-only invocation `autopilot` uses:
+  - **Codex, read-only** for a single very broad sweep — generous limits make it well suited to "read across everything once." Reuse `autopilot`'s read-only wrapper (a single, allowlistable command — no `$(…)`/pipe to trip a permission prompt); pass the scan as a freeform prompt instead of a lens:
     ```sh
-    CODEX_COMPANION="$(find ~/.claude/plugins/cache/openai-codex/codex -name codex-companion.mjs -path '*/scripts/*' 2>/dev/null | sort | tail -1)"
-    [ -z "$CODEX_COMPANION" ] && CODEX_COMPANION="$HOME/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs"
-    node "$CODEX_COMPANION" task "<scan prompt>"   # no --write → sandbox: read-only
+    node "${CLAUDE_PLUGIN_ROOT}/skills/autopilot/scripts/codex-audit.mjs" --prompt "<scan question>"
     ```
+    Use `--prompt-file <path>` for a long scan brief. It runs `task` with no `--write`, so Codex is structurally read-only.
 
 ## Flow
 

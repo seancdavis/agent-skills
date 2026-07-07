@@ -35,48 +35,18 @@ Dispatch the developer subagent with the spec, the branch, and the plan. Tell it
 
 Run **one Codex pass per lens** — simplicity and security as *separate* invocations. Never fold multiple lenses into one prompt; a mixed review is Codex's documented failure mode and yours (it fixates on one thread and the rest slides past).
 
-Resolve the companion script path once:
+Each pass is a **single, allowlistable command** — the wrapper script resolves the Codex plugin path and builds the prompt internally, so there's no `$(…)`/pipe for Claude Code to choke on, and the whole audit runs on one permission approval:
 
 ```sh
-CODEX_COMPANION="$(find ~/.claude/plugins/cache/openai-codex/codex -name codex-companion.mjs -path '*/scripts/*' 2>/dev/null | sort | tail -1)"
-[ -z "$CODEX_COMPANION" ] && CODEX_COMPANION="$HOME/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs"
+node "${CLAUDE_PLUGIN_ROOT}/skills/autopilot/scripts/codex-audit.mjs" --lens security --base main
 ```
 
-Invoke each pass with `task` and **no `--write` flag** — that is the read-only guarantee (the plugin sets `sandbox: "read-only"`, `approvalPolicy: "never"` for any `task` without `--write`; Codex then cannot edit or even prompt to edit):
+- `--lens simplicity` or `--lens security` — one lens per run; the prompt template lives in the script.
+- `--base <ref>` reviews the branch against a base (`git diff <ref>...HEAD`); omit it to review the uncommitted working tree, or pass `--scope "<text>"` to describe the range.
+- Follow-up passes: add `--context "the developer just changed X to address prior findings; check against history"` so Codex focuses on what changed rather than re-reviewing everything.
+- For a freeform (non-lens) review, pass `--prompt "<text>"` or `--prompt-file <path>` instead of `--lens`.
 
-```sh
-node "$CODEX_COMPANION" task "<prompt>"
-```
-
-Prompt shape (Codex responds best to compact, XML-blocked, operator-style prompts — one job per run):
-
-```
-<task>
-Review ONLY the changes on this branch for [LENS]. Read-only: do not modify any files.
-Scope: [first pass: the work described below / follow-up pass: the developer just changed
-{files} to address prior findings — check those against the history and confirm the concern
-is resolved without introducing new [LENS] issues].
-Work context: {one-paragraph summary of what was built, from the spec}.
-[LENS framing:
- - simplicity → Is this the simplest correct implementation? Flag unnecessary complexity,
-   dead code, needless abstraction, over-engineering, duplication. Ignore security and style.
- - security → Flag injection, authz/authn gaps, secret handling, unsafe input, SSRF, path
-   traversal, and similar. Ignore simplicity and style.]
-</task>
-<structured_output_contract>
-Findings ordered by severity (critical→low). Each: title; file:line; what's wrong; why it
-matters; concrete fix; confidence 0–1. If there are none, say so plainly. No preamble.
-</structured_output_contract>
-<grounding_rules>
-Only claims the visible code supports. Label inferences as inferences. No speculation stated
-as fact.
-</grounding_rules>
-<dig_deeper_nudge>
-One strong, well-evidenced finding beats several weak ones. Don't pad.
-</dig_deeper_nudge>
-```
-
-Leave the model unset so Codex uses Sean's `~/.codex/config.toml` default (pin `gpt-5.5` there if desired). For a long audit, add `--background` and collect with the companion's `status`/`result` subcommands.
+**Read-only is structural:** the script calls the companion's `task` with **no `--write`**, so the plugin forces `sandbox: "read-only"` / `approvalPolicy: "never"` — Codex cannot edit or even prompt to edit. The lens prompt templates (compact, XML-blocked, one job per run) live in `codex-audit.mjs`; tune them there. The model is left unset so Codex uses your `~/.codex/config.toml` default (pin `gpt-5.5` there if desired); pass `--model`/`--effort` to override.
 
 ## Phase 3 — Triage (this is where you earn your keep)
 
