@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: The front gate for an unattended build-and-audit run. Invoke with `/preflight` (optionally naming the work) when Sean wants to set up a piece of work thoroughly enough that he can walk away while it gets built and audited without him. Interactive alignment: pin intent, scope, plan, and the done-signal; optionally hand planning to a cheaper model; write a settled spec to `docs/autopilot/`; then hand off to `autopilot`. This is the "you're here" half of the flow — `autopilot` is the "you're gone" half. NOT for work Sean intends to babysit step by step (just do that directly), and NOT the place for heavy open-ended design alignment (that's `grill-me`).
+description: The front gate for an unattended build-and-audit run. Invoke with `/preflight` (optionally naming the work) when Sean wants to set up a piece of work thoroughly enough that he can walk away while it gets built and audited without him. Interactive alignment: pin intent, scope, plan, and the done-signal; ensure the work is backed by a tracked issue and a branch named for it; optionally hand planning to a cheaper model; write a settled spec to `docs/autopilot/`; then hand off to `autopilot`. This is the "you're here" half of the flow — `autopilot` is the "you're gone" half. NOT for work Sean intends to babysit step by step (just do that directly), and NOT the place for heavy open-ended design alignment (that's `grill-me`).
 ---
 
 # Preflight — the front gate
@@ -24,7 +24,8 @@ Not a fixed questionnaire — a free-form conversation that lands these:
 - **The plan** — the concrete steps/approach. Solid enough that a developer subagent could follow it. If it doesn't exist yet, see below.
 - **Done-signal** — how autopilot knows it's finished. Tests green? A specific behavior working? A checklist satisfied? Without this, an unattended run has no stop condition.
 - **Audit lenses** — default is **simplicity** and **security** (Codex, read-only, one pass each). Add or swap lenses if this work needs it; drop the design lens for now unless Sean asks.
-- **Guardrails** — the branch name, the loop bound (default: 3 audit/fix rounds), and confirmation that autopilot must not push/PR/deploy.
+- **Backing issue + branch** — the tracked issue this work answers to, and a branch named for it. If neither exists yet, this is where they get created (see below). autopilot builds on the branch; `open-pr` links/closes the issue.
+- **Guardrails** — the loop bound (default: 3 audit/fix rounds), and confirmation that autopilot ends by opening a draft PR but never merges or deploys.
 - **External dependencies** — anything only Sean can supply (keys, accounts, third-party access). If the run will block on one of these, that's a reason to resolve it now or narrow scope so it doesn't.
 
 ## Delegating the plan to a cheaper model
@@ -32,6 +33,21 @@ Not a fixed questionnaire — a free-form conversation that lands these:
 If the work isn't planned yet, don't burn the orchestrator's tier on it. Hand planning to a **Sonnet subagent** (`Agent`, model `sonnet`) — or the `Plan` agent — with the intent and scope, get back a step-by-step plan, then bring it to Sean for sign-off. The orchestrator's judgment goes into *reviewing* the plan, not drafting it. Escalate to a stronger model only if the cheap draft doesn't clear the bar.
 
 This is the first place the routing principle shows up: cheap model does the legwork, the high-taste orchestrator judges the result.
+
+## Ensure the backing artifact is in place
+
+autopilot needs something concrete to build toward and to be checked against. That's two artifacts: the **spec** (below) and a **tracked issue**. Make sure the issue exists *before* you hand off — you're here and interactive, so this is the cheap moment to create it.
+
+- **Use an existing issue** if the work already has one — take its reference.
+- **Create one** if it doesn't. You're at the keyboard: confirm the one-liner with Sean, then file it.
+- **Name the branch for the issue** so the trail is obvious end to end — autopilot builds on it, `open-pr` closes the issue from the PR.
+
+Keep this **tracker-agnostic and portable** — don't compile a tracker into the skill:
+
+- The portable default is a **GitHub issue** (`gh issue create`) with a branch like `{issue-number}-{slug}`. Works for anyone with a repo, zero setup.
+- Which tracker to use, and the branch-name format, is a **project convention** declared in the project's own `CLAUDE.md` — e.g. "issues live in Linear; branches are `lin-{id}-{slug}`," in which case create/link the Linear issue via the Linear tools instead. Read and follow that convention when it's present.
+
+Record the issue reference and the branch in the spec so autopilot and `open-pr` both pick them up.
 
 ## Write the spec, then hand off
 
@@ -60,10 +76,15 @@ Location: `docs/autopilot/{YYYY-MM-DD}-{short-slug}.md` in the active project (t
 - security
 {…and any others agreed this run.}
 
+## Issue
+{tracker ref + URL — e.g. #123 or LIN-1234}
+
+## Branch
+{branch-name, named for the issue}
+
 ## Guardrails
-- Branch: {branch-name}
 - Loop bound: {N} audit/fix rounds
-- Never push, open a PR, or deploy.
+- End by opening a draft PR; never merge or deploy.
 
 ## External dependencies
 {Anything only Sean supplies, or "none".}
