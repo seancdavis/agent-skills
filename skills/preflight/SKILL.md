@@ -22,11 +22,21 @@ Not a fixed questionnaire — a free-form conversation that lands these:
 - **Intent** — the outcome, not the task. After this runs, Sean's situation is _Y_.
 - **Scope** — what's in, what's explicitly out. Where autopilot should stop rather than wander.
 - **The plan** — the concrete steps/approach. Solid enough that a developer subagent could follow it. If it doesn't exist yet, see below.
-- **Done-signal** — how autopilot knows it's finished. Tests green? A specific behavior working? A checklist satisfied? Without this, an unattended run has no stop condition.
+- **Done-signal** — how autopilot knows it's finished. Tests green? A specific behavior working? A checklist satisfied? Without this, an unattended run has no stop condition. If the work deletes or renames anything, derive it from the reference sweep below — not from a hand-picked file list.
 - **Audit lenses** — default is **simplicity** and **security** (Codex, read-only, one pass each). Add or swap lenses if this work needs it; drop the design lens for now unless Sean asks.
 - **Backing issue + branch** — the tracked issue this work answers to, and a branch named for it. If neither exists yet, this is where they get created (see below). autopilot builds on the branch; `open-pr` links/closes the issue.
 - **Guardrails** — the loop bound (default: 3 audit/fix rounds), and confirmation that autopilot ends by opening a draft PR but never merges or deploys.
 - **External dependencies** — anything only Sean can supply (keys, accounts, third-party access). If the run will block on one of these, that's a reason to resolve it now or narrow scope so it doesn't.
+
+## Deletions and renames: sweep before you scope
+
+When the plan **removes or renames** anything whose reach extends past the file you're editing — a file, directory, skill, exported identifier, config key, route — its blast radius doesn't respect your scope fence. You can descope *fixing* a consumer; you can't descope *knowing* it exists.
+
+So build the scope and done-signal on a **repo-wide, unrestricted reference sweep**, never an assumed file list:
+
+- Run it across the whole repo, **unrestricted by file type or directory** — `rg "<name>"` (respects `.gitignore`) or `grep -rn "<name>" .`. The trap is narrowing to `*.md`/`*.json` or to `skills/`; that exact narrowing is what leaks a `.ts` file in another directory.
+- **Disposition every hit** in the spec: fix in scope / generated-rebuilds-itself / historical-leave / explicitly descoped **with the consequence named** ("descoping X means Y breaks"). Descoping without naming what breaks is how a real dependency gets waved past.
+- The **done-signal derives from that sweep**, never from a subset of it. "grep `skills/` returns nothing" is a trap done-signal — it verifies your assumption, not the repo.
 
 ## Delegating the plan to a cheaper model
 

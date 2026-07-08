@@ -55,6 +55,7 @@ Codex hands back raw findings. **Never pass them downstream as-is.** For each fi
 - **Is it real?** Open the code and confirm. Codex is confident even when wrong; low-confidence findings especially need checking.
 - **Is it in scope and material?** Drop nits, style bikeshedding, and things outside the spec's intent. Simplicity findings that would *add* complexity to satisfy get dropped.
 - **Did Codex fixate?** If it spent the whole pass on one detail, ask what it likely missed and whether a second angle is worth a pass.
+- **Does it invalidate a spec assumption?** A finding is evidence about the *spec*, not just the code. When one shows the spec was wrong about something — its file list, its scope, an assumption it rested on — don't just fix the found instance: re-derive the **class**. Re-run, yourself and repo-wide, the check that assumption was built on (e.g. preflight's reference sweep) and fold in whatever else it surfaces *before* closing the round. Confirming the one finding and moving on is exactly how a single under-scoped sweep survives every downstream layer. It's read-only work — judgment, not editing — so it stays within the rules.
 
 Produce a **judged action list** ranked by severity — only the findings a developer should actually act on, each with your reasoning. This list, not the Codex dump, is what moves forward.
 
