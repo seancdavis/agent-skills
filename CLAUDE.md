@@ -106,6 +106,13 @@ Claude will also automatically invoke skills based on context.
 | `decision-log`         | Architecture Decision Records (`docs/decisions/`)    |
 | `operating-principles` | Living current-state doc (`docs/principles.md`)      |
 
+### Writing
+
+| Skill            | Description                                                                       |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `human-readable` | Writing mode for public-facing prose: voice profile + anti-AI-tell rules          |
+| `update-voice`   | `/update-voice` — build or refresh the personal voice profile from actual writing |
+
 ### Supplementary
 
 | Skill          | Description                               |
