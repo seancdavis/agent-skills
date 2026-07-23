@@ -8,7 +8,7 @@
     {
       "name": "seancdavis-skills",
       "description": "Web development skills for Astro and Vite+React projects deployed to Netlify. Covers project scaffolding, authentication, data storage, forms, routing, and more.",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "source": {
         "source": "github",
         "repo": "seancdavis/agent-skills"

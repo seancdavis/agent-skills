@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.3.0] - 2026-07-23
+
+### Added
+
+- `/human-readable` skill — writing mode for public-facing prose; loads a
+  personal voice profile and applies anti-AI-tell rules where the profile
+  is silent.
+- `/update-voice` skill — builds or refreshes the voice profile from the
+  author's actual published writing (project- or user-level file).
+- `/preflight` and `autopilot` skills — interactive setup, then an unattended
+  build-and-audit run (Claude developer subagent + read-only Codex auditor)
+  that ends by opening a draft PR.
+- `/open-pr` skill — push the branch and open a concise, human-first draft PR;
+  also autopilot's closing handoff.
+- `/research` skill — broad, token-heavy investigation delegated to cheaper
+  focused models, synthesized by the orchestrator.
+- `/roster` skill — after-the-fact table of which model each subagent ran on,
+  with token and tool-call volume.
+
+### Changed
+
+- Autopilot's Codex audit runs as a single allowlistable command, and its
+  unattended permission posture is documented.
+- Preflight now ensures a backing issue and branch before handoff, and
+  hardens specs against under-scoped deletions and renames.
+
+### Fixed
+
+- `.claude/settings.local.json` is no longer tracked.
+
 ## [0.2.0] - 2026-06-30
 
 Baseline release. Resets versioning to the `0.x` line and reconciles the
