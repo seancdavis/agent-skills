@@ -4,20 +4,21 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opin
 
 ## What's Included
 
-25 skills covering the full web development lifecycle:
+33 skills covering the full web development lifecycle:
 
-| Category | Skills |
-|----------|--------|
-| **Project Setup** | New project scaffolding, CLAUDE.md generation, existing-project onboarding |
-| **Frameworks** | Astro SSR patterns, Vite+React with React Router |
-| **Architecture** | Rails-style routing, component design, skeleton patterns |
-| **Auth** | Netlify Identity with Google OAuth, approved users safelist |
-| **Data** | Netlify DB + Drizzle ORM, Netlify Blobs, image CDN |
-| **UX** | Forms, toast notifications, feedback patterns |
-| **Operations** | Logging, environment variables |
-| **Project Documentation** | Grill-me interviews, session logs, ADRs, living principles doc |
-| **Extras** | AI workflows, transactional email, SEO |
-| **Utilities** | Copy conversation output to the clipboard as Markdown |
+| Category                  | Skills                                                                     |
+| ------------------------- | -------------------------------------------------------------------------- |
+| **Project Setup**         | New project scaffolding, CLAUDE.md generation, existing-project onboarding |
+| **Frameworks**            | Astro SSR patterns, Vite+React with React Router                           |
+| **Architecture**          | Rails-style routing, component design, skeleton patterns                   |
+| **Auth**                  | Netlify Identity with Google OAuth, approved users safelist                |
+| **Data**                  | Netlify DB + Drizzle ORM, Netlify Blobs, image CDN                         |
+| **UX**                    | Forms, toast notifications, feedback patterns                              |
+| **Operations**            | Logging, environment variables                                             |
+| **Project Documentation** | Grill-me interviews, session logs, ADRs, living principles doc             |
+| **Writing**               | Personal voice profiles, human-readable public prose                       |
+| **Extras**                | AI workflows, transactional email, SEO                                     |
+| **Utilities**             | Copy conversation output to the clipboard as Markdown                      |
 
 ## Installation
 
@@ -34,6 +35,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opin
 ```
 
 Choose your preferred scope:
+
 - **user** — Available in all projects
 - **project** — Shared via git with collaborators
 - **local** — This machine only, not committed
@@ -52,72 +54,79 @@ Skills are invoked automatically by Claude based on context, or manually:
 
 ### Orchestration
 
-| Skill | Description |
-|-------|-------------|
-| `new-project` | Scaffolds new Astro or Vite+React projects with Netlify deployment |
+| Skill                      | Description                                                               |
+| -------------------------- | ------------------------------------------------------------------------- |
+| `new-project`              | Scaffolds new Astro or Vite+React projects with Netlify deployment        |
 | `onboard-existing-project` | Integrates skills into existing codebases; audits CLAUDE.md for conflicts |
-| `claude-md-template` | Template for generating CLAUDE.md in new projects |
+| `claude-md-template`       | Template for generating CLAUDE.md in new projects                         |
 
 ### Frameworks
 
-| Skill | Description |
-|-------|-------------|
-| `astro-best-practices` | Astro patterns: Netlify adapter, React islands, SSR |
-| `vite-best-practices` | Vite+React patterns: React Router, progressive rendering |
+| Skill                  | Description                                              |
+| ---------------------- | -------------------------------------------------------- |
+| `astro-best-practices` | Astro patterns: Netlify adapter, React islands, SSR      |
+| `vite-best-practices`  | Vite+React patterns: React Router, progressive rendering |
 
 ### Architecture
 
-| Skill | Description |
-|-------|-------------|
-| `routing-design` | Rails-style CRUD routes, URL conventions |
+| Skill              | Description                               |
+| ------------------ | ----------------------------------------- |
+| `routing-design`   | Rails-style CRUD routes, URL conventions  |
 | `component-design` | Component architecture, skeleton patterns |
 
 ### Auth & UX
 
-| Skill | Description |
-|-------|-------------|
+| Skill         | Description                                                 |
+| ------------- | ----------------------------------------------------------- |
 | `auth-design` | Netlify Identity with Google OAuth, approved users safelist |
-| `feedback` | Toast notifications, query param messages |
-| `forms` | HTTP forms (Astro) vs JSON forms (React) |
+| `feedback`    | Toast notifications, query param messages                   |
+| `forms`       | HTTP forms (Astro) vs JSON forms (React)                    |
 
 ### Data Infrastructure
 
-| Skill | Description |
-|-------|-------------|
-| `data-storage` | Netlify DB + Drizzle ORM, migrations |
-| `file-storage` | Netlify Blobs for non-image files |
+| Skill               | Description                                      |
+| ------------------- | ------------------------------------------------ |
+| `data-storage`      | Netlify DB + Drizzle ORM, migrations             |
+| `file-storage`      | Netlify Blobs for non-image files                |
 | `netlify-functions` | Modern function syntax (default exports, Config) |
-| `netlify-images` | Image upload, storage, CDN optimization |
+| `netlify-images`    | Image upload, storage, CDN optimization          |
 
 ### Operations
 
-| Skill | Description |
-|-------|-------------|
+| Skill                    | Description                         |
+| ------------------------ | ----------------------------------- |
 | `logging-and-monitoring` | Three-level logging, scoped loggers |
-| `environment-variables` | Netlify CLI management |
+| `environment-variables`  | Netlify CLI management              |
 
 ### Project Documentation
 
-| Skill | Description |
-|-------|-------------|
-| `grill-me` | `/grill-me` slash command — free-form pre-execution alignment interview |
-| `paper-trail` | Per-session log format, stored in `docs/sessions/` |
-| `decision-log` | Architecture Decision Records (ADRs), stored in `docs/decisions/` |
-| `operating-principles` | Living current-state doc at `docs/principles.md` |
+| Skill                  | Description                                                             |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `grill-me`             | `/grill-me` slash command — free-form pre-execution alignment interview |
+| `paper-trail`          | Per-session log format, stored in `docs/sessions/`                      |
+| `decision-log`         | Architecture Decision Records (ADRs), stored in `docs/decisions/`       |
+| `operating-principles` | Living current-state doc at `docs/principles.md`                        |
+
+### Writing
+
+| Skill            | Description                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
+| `human-readable` | Writing mode for public-facing prose — applies a personal voice profile plus anti-AI-tell rules     |
+| `update-voice`   | `/update-voice` slash command — build or refresh the voice profile from the author's actual writing |
 
 ### Supplementary
 
-| Skill | Description |
-|-------|-------------|
+| Skill          | Description                               |
+| -------------- | ----------------------------------------- |
 | `ai-workflows` | Netlify AI Gateway, Anthropic/OpenAI SDKs |
-| `email` | Transactional email with Resend |
-| `seo` | Meta tags, Open Graph, structured data |
-| `ui-design` | Tailwind CSS v4, accessibility baseline |
+| `email`        | Transactional email with Resend           |
+| `seo`          | Meta tags, Open Graph, structured data    |
+| `ui-design`    | Tailwind CSS v4, accessibility baseline   |
 
 ### Utilities
 
-| Skill | Description |
-|-------|-------------|
+| Skill  | Description                                                                              |
+| ------ | ---------------------------------------------------------------------------------------- |
 | `copy` | `/copy` slash command — copy conversation output to the system clipboard as raw Markdown |
 
 ## Status Line
