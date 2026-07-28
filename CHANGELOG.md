@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.4.0] - 2026-07-28
+
+### Added
+
+- `/autopilot-iterate` skill — picks an autopilot PR back up after Sean's
+  review, treating his comments as the next control signal: triage the
+  feedback, fix, re-audit, and reply on the PR comment by comment.
+
+### Changed
+
+- Preflight and autopilot now follow an explicit control-loop structure,
+  and the PR's draft/ready state is derived from the completeness gate.
+
 ## [0.3.0] - 2026-07-23
 
 ### Added
