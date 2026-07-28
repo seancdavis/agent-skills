@@ -1,11 +1,11 @@
 ---
 name: autopilot-iterate
-description: The follow-up loop after Sean reviews an autopilot draft PR — his review comments become the next control signal. Invoke with `/autopilot-iterate` (optionally the PR number) from the project repo when Sean has reviewed a PR that autopilot opened and left comments — or has feedback to give now — and wants the run to pick the work back up without re-explaining anything in a fresh conversation. Deterministically loads the PR's diff, comments, and review threads plus the spec; triages the feedback into a judged action list; dispatches a Claude developer subagent to fix; re-audits the delta with read-only Codex; re-runs the completeness gate; pushes to the same branch; and replies on the PR with a comment-by-comment account. Same unbending rules as `autopilot`: the orchestrator never writes code or audits, the auditor never edits, and nothing merges or deploys. NOT for the first pass of a piece of work (that's `preflight` → `autopilot`), and NOT for reviewing PRs autopilot didn't produce.
+description: The follow-up loop after Sean reviews an autopilot PR — his review comments become the next control signal. Invoke with `/autopilot-iterate` (optionally the PR number) from the project repo when Sean has reviewed a PR that autopilot opened and left comments — or has feedback to give now — and wants the run to pick the work back up without re-explaining anything in a fresh conversation. Deterministically loads the PR's diff, comments, and review threads plus the spec; triages the feedback into a judged action list; dispatches a Claude developer subagent to fix; re-audits the delta with read-only Codex; re-runs the completeness gate; pushes to the same branch; sets the PR to ready-for-review or back to draft per what the gate measured; and replies on the PR with a comment-by-comment account. Same unbending rules as `autopilot`: the orchestrator never writes code or audits, the auditor never edits, and nothing merges or deploys. NOT for the first pass of a piece of work (that's `preflight` → `autopilot`), and NOT for reviewing PRs autopilot didn't produce.
 ---
 
 # Autopilot-iterate — review comments are the control signal
 
-Autopilot ended by opening a draft PR; Sean reviewed it and left comments. Those comments are the most valuable input the system gets — a human looked at the real output and said what's wrong. Consume them the way autopilot consumes a spec: deterministically loaded, judged, acted on, and accounted for — without Sean having to restate any of it.
+Autopilot ended by opening a PR; Sean reviewed it and left comments. Those comments are the most valuable input the system gets — a human looked at the real output and said what's wrong. Consume them the way autopilot consumes a spec: deterministically loaded, judged, acted on, and accounted for — without Sean having to restate any of it.
 
 ## The same rules apply (unchanged from autopilot)
 
@@ -56,11 +56,12 @@ If a comment has two readings, take the one consistent with the spec's intent an
 - Push to the PR's existing branch. The PR updates in place and the deploy preview rebuilds for Sean's next smoke test.
 - Leave **one summary comment** on the PR mapping every piece of feedback to what happened: fixed (with the commit), spec updated, deferred (and why), or answered. This is what makes the next review pass cheap — Sean reads one comment, not the whole diff again.
 - If a run report exists in `docs/autopilot/`, append an iteration section to it (round, findings, what changed).
-- Then stop. The PR stays a draft until Sean says otherwise; merging and deploying stay human calls.
+- **Set the PR's state to what the gate measured** — same rule as autopilot's Phase 6: gate clean and every comment dispositioned → mark it **ready for review** (`gh pr ready <number>`); bounded out with unmet items → leave it a draft, or convert it back to one (`gh pr ready <number> --undo`), with the unmet list in your summary comment. Draft/ready is a measurement-derived signal, never a shipping decision.
+- Then stop. Merging and deploying stay human calls.
 
 ## Permissions
 
-Same posture as `autopilot`: unattended runs live in bypass-permissions mode on the strength of the same guardrails (branch-only, draft PR, human reviews before ship); attended runs get by with the allowlisted audit command, with `gh` prompting as usual.
+Same posture as `autopilot`: unattended runs live in bypass-permissions mode on the strength of the same guardrails (branch-only, PR-only, human reviews before ship); attended runs get by with the allowlisted audit command, with `gh` prompting as usual.
 
 ## Related skills
 

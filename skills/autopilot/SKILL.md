@@ -1,6 +1,6 @@
 ---
 name: autopilot
-description: The unattended build-and-audit run — the "you're gone" half of the flow. Invoked by `preflight`'s handoff, or with `/autopilot` pointed at a settled spec, when Sean has walked away. The orchestrator coordinates without writing code or auditing itself: it works the spec's plan as a slice queue (a fresh Claude developer subagent per slice, each slice's check run before advancing), fires Codex as a strictly read-only auditor on focused simplicity and security passes, triages the findings with judgment, loops real fixes back to the developer, and refuses to open the PR until the spec's done-signal measurably passes (the completeness gate). Works on a branch and ends by opening a draft PR (which fires the deploy preview) for the human's review; never merges or deploys. The auditor never fixes. For the interactive setup that precedes this, see `preflight`; for picking the run back up after Sean reviews the PR, see `autopilot-iterate`.
+description: The unattended build-and-audit run — the "you're gone" half of the flow. Invoked by `preflight`'s handoff, or with `/autopilot` pointed at a settled spec, when Sean has walked away. The orchestrator coordinates without writing code or auditing itself: it works the spec's plan as a slice queue (a fresh Claude developer subagent per slice, each slice's check run before advancing), fires Codex as a strictly read-only auditor on focused simplicity and security passes, triages the findings with judgment, loops real fixes back to the developer, and refuses to open the PR until the spec's done-signal measurably passes (the completeness gate). Works on a branch and ends by opening a PR (which fires the deploy preview) — marked ready-for-review when the completeness gate passes clean, left draft when anything is unmet; never merges or deploys. The auditor never fixes. For the interactive setup that precedes this, see `preflight`; for picking the run back up after Sean reviews the PR, see `autopilot-iterate`.
 ---
 
 # Autopilot — the unattended run
@@ -11,7 +11,7 @@ Nobody is watching. Sean set the work up in `preflight`, hit the walk-away line,
 
 1. **The orchestrator judges — it does not write code, and it does not audit.** You dispatch a developer to write and Codex to audit. Your work is the judgment _between_ their outputs. You stay out of writing so you can weigh the audit impartially; you stay out of auditing so a second, independent model catches what you'd miss.
 2. **The auditor is read-only, always.** Codex reviews and reports. It never edits. This is structural (see the invocation below), not a promise — but never route audits through anything that can write.
-3. **Never ship.** Work on a branch and commit at clean points. Ending the run means pushing the branch and opening a **draft PR** for review (Phase 6) — that's the handoff, not the ship. Never merge the PR and never deploy; those stay the human's calls after review.
+3. **Never ship.** Work on a branch and commit at clean points. Ending the run means pushing the branch and opening a **PR** for review (Phase 6) — that's the handoff, not the ship. Whether the PR is draft or ready-for-review is a signal derived from the completeness gate, never a shipping decision. Never merge the PR and never deploy; those stay the human's calls after review.
 4. **Never accept "done" on self-report — measure it.** Running the spec's checks (tests, builds, greps, the done-signal) is _sensing_, and it is your job: it's not writing and it's not auditing. A developer saying "done" and an audit coming back clean are both compatible with a half-built branch; only the spec's checks passing means done. If you're about to advance a phase without having run a check, stop and run it.
 
 ## Preconditions — fail safe, because no one's here
@@ -83,7 +83,9 @@ Re-read the spec from disk — don't trust your memory of it; a long run may hav
 
 ## Phase 6 — Open the PR and stop
 
-Close the run by handing off through the `open-pr` skill: push the branch and open a **draft PR** for review. On Netlify (and similar), the PR is what triggers the deploy preview Sean needs for his smoke test — so opening it _is_ the handoff, not a violation of "never ship."
+Close the run by handing off through the `open-pr` skill: push the branch and open a **PR** for review. On Netlify (and similar), the PR is what triggers the deploy preview Sean needs for his smoke test — so opening it _is_ the handoff, not a violation of "never ship."
+
+**Draft vs. ready is a measurement, not a mood.** If the completeness gate passed with nothing unmet, mark the PR **ready for review** (hand `--ready` to `open-pr`, or `gh pr ready` after the fact): every measurable claim passed, and the only work left is Sean's — the smoke test, the `human-verify` items, the merge call. If the run bounded out with unmet items or a blocked slice, leave it a **draft**: draft is the run's own admission that something is unfinished. This gives Sean a triage signal across open PRs — ready means "review and decide," draft means "needs attention; read the verify note first." `human-verify` items don't block ready — they're Sean's expected share of the work, not incompleteness.
 
 The PR body is the report, kept to `open-pr`'s concise convention (summary + what changed), plus a short **verify** note carrying the two things Sean most needs:
 
@@ -96,7 +98,7 @@ Then stop. Never merge the PR and never deploy — Sean reviews the preview and 
 
 ## Guardrails, in one place
 
-- Work on a branch; commit at clean points; end by pushing + opening a **draft PR** (via `open-pr`). Never merge or deploy.
+- Work on a branch; commit at clean points; end by pushing + opening a PR (via `open-pr`) — ready-for-review when the completeness gate passed clean, draft when anything is unmet. Never merge or deploy.
 - Orchestrator never edits code and never audits — but it always measures: every slice check and done-signal item gets _run_, never taken on self-report.
 - Auditor is read-only (`task` without `--write`); developer and auditor are different models.
 - Fresh developer per slice; never advance the queue past a red check.
@@ -107,7 +109,7 @@ Then stop. Never merge the PR and never deploy — Sean reviews the preview and 
 
 Autopilot only walks away cleanly if nothing blocks on a human approval — and the Codex audit is just the first of several: the developer subagent's edits, the test run, and the git commits would all prompt too. Two ways to run it:
 
-- **Unattended → bypass-in-a-sandbox.** Launch the session in bypass-permissions mode. That sounds reckless but it fits autopilot's design: it works on a branch, opens only a draft PR (never merges or deploys), and you review before it ships — so the blast radius is one branch you inspect. Lean on the guardrails as the safety net instead of approving command by command.
+- **Unattended → bypass-in-a-sandbox.** Launch the session in bypass-permissions mode. That sounds reckless but it fits autopilot's design: it works on a branch, only ever opens a PR (never merges or deploys), and you review before it ships — so the blast radius is one branch you inspect. Lean on the guardrails as the safety net instead of approving command by command.
 - **Attended → allowlist the audit command.** When you're around, a `permissions.allow` rule for the `codex-audit.mjs` wrapper stops the audit from nagging while everything else still prompts (the recommended entries live in your user settings). This works only because the audit is a single clean `node …` command — a compound `$(…)`/piped command can't be allowlisted at all.
 
 Either way the read-only auditor guarantee holds: `task` without `--write` can't modify files regardless of permission mode.
@@ -115,5 +117,5 @@ Either way the read-only auditor guarantee holds: `task` without `--write` can't
 ## Related skills
 
 - `preflight` — the interactive setup and spec that this consumes.
-- `autopilot-iterate` — the follow-up loop after Sean reviews the draft PR; his review comments become the next control signal.
+- `autopilot-iterate` — the follow-up loop after Sean reviews the PR; his review comments become the next control signal.
 - `grill-me` / `paper-trail` — heavier alignment and session logging, upstream of preflight.

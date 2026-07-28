@@ -25,7 +25,7 @@ Not a fixed questionnaire — a free-form conversation that lands these:
 - **Done-signal** — how autopilot knows it's finished, written as checks it can **run**, not prose it can interpret (see below). Without this, an unattended run has no stop condition. If the work deletes or renames anything, derive it from the reference sweep below — not from a hand-picked file list.
 - **Audit lenses** — default is **simplicity** and **security** (Codex, read-only, one pass each). Add or swap lenses if this work needs it; drop the design lens for now unless Sean asks.
 - **Backing issue + branch** — the tracked issue this work answers to, and a branch named for it. If neither exists yet, this is where they get created (see below). autopilot builds on the branch; `open-pr` links/closes the issue.
-- **Guardrails** — the loop bound (default: 3 audit/fix rounds), and confirmation that autopilot ends by opening a draft PR but never merges or deploys.
+- **Guardrails** — the loop bound (default: 3 audit/fix rounds), and confirmation that autopilot ends by opening a PR — ready-for-review if the completeness gate passes clean, draft if anything is unmet — but never merges or deploys.
 - **External dependencies** — anything only Sean can supply (keys, accounts, third-party access). If the run will block on one of these, that's a reason to resolve it now or narrow scope so it doesn't.
 
 ## Make the done-signal executable
@@ -147,7 +147,7 @@ Human-only judgments listed as "human-verify: …" — they route to the PR's ve
 ## Guardrails
 
 - Loop bound: {N} audit/fix rounds
-- End by opening a draft PR; never merge or deploy.
+- End by opening a PR — ready if the completeness gate passes clean, draft otherwise; never merge or deploy.
 
 ## External dependencies
 
@@ -165,6 +165,6 @@ Then say the line out loud — "I have what I need; you can walk away. Starting 
 ## Related skills
 
 - `autopilot` — the unattended build+audit run this hands off to.
-- `autopilot-iterate` — picks the run back up after Sean reviews the draft PR; his review comments become the next control signal.
+- `autopilot-iterate` — picks the run back up after Sean reviews the PR; his review comments become the next control signal.
 - `grill-me` — deeper, doc-producing alignment when the direction (not just the execution) is in question. Preflight borrows its "could execute without me" bar.
 - `paper-trail` — session log; useful if the preflight conversation itself produced decisions worth recording.
