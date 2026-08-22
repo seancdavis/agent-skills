@@ -140,6 +140,9 @@ skills/
     SKILL.md          # Skill content (frontmatter + instructions)
     scripts/          # Optional: Executable code
     references/       # Optional: Documentation for context
+output-styles/        # Response-shape styles (installed to ~/.claude)
+statusline/           # Custom status line (installed to ~/.claude)
+hooks/                # Hook scripts (installed to ~/.claude)
 ```
 
 ## Skill Development
