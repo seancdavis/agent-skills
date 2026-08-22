@@ -129,6 +129,16 @@ Skills are invoked automatically by Claude based on context, or manually:
 | ------ | ---------------------------------------------------------------------------------------- |
 | `copy` | `/copy` slash command — copy conversation output to the system clipboard as raw Markdown |
 
+## Output Style
+
+This repo also ships the **Concise** output style — lead with the answer, teach in passing, then stop. It replaces Claude's default response-shape instructions for every turn of every session, so it holds where a one-time "be brief" decays. Install it with:
+
+```bash
+./output-styles/install.sh
+```
+
+See [`output-styles/README.md`](output-styles/README.md) for what it asks for and how to customize it.
+
 ## Status Line
 
 This repo also ships a custom Claude Code status line (repo · branch · ticket · context-usage bar · cost · model). Install it on a Mac with:
@@ -168,6 +178,9 @@ skills/
     SKILL.md          # Skill content (frontmatter + instructions)
     scripts/          # Optional: Executable code
     references/       # Optional: Documentation for context
+output-styles/        # Response-shape styles (installed to ~/.claude)
+statusline/           # Custom status line (installed to ~/.claude)
+hooks/                # Hook scripts (installed to ~/.claude)
 ```
 
 ### Creating Skills
