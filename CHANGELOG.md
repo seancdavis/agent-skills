@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.5.0] - 2026-08-22
+
+### Added
+
+- `output-styles/` — the **Concise** output style, with an idempotent
+  installer and a README. Leads with the answer, teaches in passing, then
+  stops. Carries a worked exemplar of the target register, formatting rules
+  (bold-lead paragraphs of two or three sentences), and a code section
+  requiring every identifier to be glossed inline the first time it appears.
+- `hooks/concise-reminder.sh` — a `UserPromptSubmit` hook that re-injects a few
+  of the style's rules at the recency end of context, plus an installer. Left
+  uninstalled by default: it is the fallback for when Claude Code's built-in
+  reminder of the active style stops holding.
+
+### Changed
+
+- `open-pr` opens a **ready-for-review** PR by default; `--draft` becomes the
+  opt-in. The old default lived in the skill's _description_, which loads into
+  every session whether or not the skill is invoked — so it was quietly
+  drafting PRs in sessions that never called it. Draft is now reserved for work
+  that is measurably unfinished and nameable.
+- `autopilot` Phase 6 inverts to match: pass nothing to `open-pr` when the
+  completeness gate is clean, hand `--draft` when the run bounded out.
+
 ## [0.4.0] - 2026-07-28
 
 ### Added
