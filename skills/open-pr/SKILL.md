@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: Push the current feature branch and open a pull request with a concise, human-first body — a quick summary plus a bulleted list of what changed, written for a reviewer moving fast (not Claude's verbose default). Invoke with `/open-pr` when branch work is ready for review, or called by `autopilot` as its closing handoff. Links the PR to a backing issue when one is referenced (a GitHub `#N` or a Linear issue) but stays tracker-agnostic and portable — which tracker and how branches are named are project conventions, not baked into the skill. Opens a draft PR by default (for review, not to merge). Does NOT merge or deploy — that stays with the human.
+description: Push the current feature branch and open a pull request with a concise, human-first body — a quick summary plus a bulleted list of what changed, written for a reviewer moving fast (not Claude's verbose default). Invoke with `/open-pr` when branch work is ready for review, or called by `autopilot` as its closing handoff. Links the PR to a backing issue when one is referenced (a GitHub `#N` or a Linear issue) but stays tracker-agnostic and portable — which tracker and how branches are named are project conventions, not baked into the skill. Opens a ready-for-review PR by default; pass `--draft` when the work is knowingly unfinished. Does NOT merge or deploy — that stays with the human.
 ---
 
 # Open PR — the handoff, not the ship
@@ -34,7 +34,7 @@ That's the whole template. No test-plan essays, no restating the diff, no boiler
    - a Linear issue (a `TEAM-123` key or Linear URL, with the Linear tools available) → link it via Linear so the issue tracks the PR;
    - nothing found → open the PR anyway and note "no issue linked." A project that *requires* an issue says so in its own convention (below) — the skill doesn't force it.
 3. **Push** the branch with upstream tracking.
-4. **Open a draft PR** against the base branch, body per the convention above. Use a normal (non-draft) PR only when asked (`--ready`) — draft is the default because this is "for your review," and deploy previews still build on drafts.
+4. **Open a ready-for-review PR** against the base branch, body per the convention above. Open a **draft** only when asked (`--draft`) or when the caller has measured the work as incomplete — see below.
 5. **Report** the PR URL and whether an issue was linked. Then stop.
 
 ## Portability — keep the niche config out of the skill
@@ -46,11 +46,17 @@ Issue trackers and branch-naming are team-specific (Linear here, GitHub there, J
 
 This is why the skill adapts to the issue *reference* you give it rather than choosing a tracker — hand it a Linear issue and it uses Linear; hand it `#42` and it uses GitHub. Nothing Netlify- or Linear-specific is compiled in.
 
+## Draft is a signal, not a safety net
+
+Ready-for-review is the default because opening a PR is already the reversible step — nothing merges or deploys without you. Marking it draft on top of that says nothing, and a queue where everything is draft carries no information at all.
+
+Open a draft only when something is **measurably** unfinished and you can name it: a failing check, a skipped slice, an unmet item from a caller's completeness gate. Say what it is in the PR body. "I'm not sure this is good enough" is not a reason — that judgment is the reviewer's, which is what the PR is for.
+
 ## Guardrail
 
 Push and open a PR — never `git merge`, never merge the PR, never deploy. Those are the human's calls after review.
 
 ## Related skills
 
-- `autopilot` — calls this as its closing handoff (draft PR → deploy preview → your review).
+- `autopilot` — calls this as its closing handoff, passing `--draft` when its completeness gate found unmet items.
 - `release` — version bump + tag, a separate step after a PR merges.
