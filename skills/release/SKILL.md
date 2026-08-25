@@ -38,7 +38,9 @@ Sanity-check the target is greater than the current version unless the user expl
 After the local commit + tag, **ask before touching the remote** — unless the user already said "push" / "publish" or passed `--publish`. On confirmation:
 
 - `git push origin HEAD` then `git push origin vX.Y.Z`.
-- `gh release create vX.Y.Z --title "vX.Y.Z" --notes-from-tag` (or pass the changelog section as `--notes`).
+- `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <file>`, where the file holds this version's changelog section **without** its `## [X.Y.Z]` heading (GitHub shows the version already).
+- **Unwrap the bullets first.** `CHANGELOG.md` is Prettier-wrapped at 80 columns; the release page renders in a narrow column and re-wraps on top of that, which shreds it. Each bullet goes on one unwrapped line. `--notes-from-tag` is not a substitute — the tag message is only `vX.Y.Z`.
+- **Keep the bullets short and high.** One sentence each, describing what a user gets — not the implementation. Four or five bullets per section, not ten. `v0.3.0`'s notes are the reference.
 
 ## Guardrails
 
