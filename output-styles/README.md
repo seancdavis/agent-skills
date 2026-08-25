@@ -7,22 +7,28 @@ does.
 
 ## Concise
 
-`concise.md` — lead with the answer, teach in passing, then stop and let me pry.
+`concise.md` — answer in under 150 words, teach in passing, then stop and let me
+pry.
 
-It exists because "be brief" alone does not hold. The style is written as
-checkable rules instead of negative ones, so when a response drifts you can name
-the line that broke rather than concluding the whole thing failed.
+It exists because "be brief" alone does not hold. The rules are checkable rather
+than negative, so when a response drifts you can name the line that broke.
 
 What it asks for:
 
-- **A one-clause why, then stop.** Every claim carries its own reason in plain
-  words; the reason behind the reason waits until you ask.
-- **Bold-lead paragraphs of two or three sentences.** Reads as fast as bullets
-  but keeps the connective tissue between points.
+- **A hard budget: 150 words.** The gist should land in 10–15 seconds. Most
+  answers are one to three sentences.
+- **Only the question asked.** Not the related questions, not what turned up
+  along the way, not the caveats.
+- **A one-clause why, then stop.** The reason behind the reason waits until you
+  ask for it.
 - **No assumed knowledge of the code.** Every identifier gets a plain-language
   gloss inline the first time it appears, in the sentence that uses it.
-- **Plain words over correct ones.** If a precise term is not doing work you can
-  use today, it is left out — not defined.
+- **Prose by default.** Bold-lead paragraphs are reserved for options or
+  comparisons you asked for — using them everywhere is what makes answers grow.
+
+An earlier version capped paragraph length but not total length, and made
+bold-lead paragraphs the house style. Both changes pushed answers longer: every
+response became a list of parallel points, and each point justified itself.
 
 ## Install
 
@@ -39,6 +45,11 @@ Standalone, without a checkout:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/seancdavis/agent-skills/main/output-styles/install.sh | bash
 ```
+
+Then install [`hooks/concise-reminder.sh`](../hooks/README.md) too. The style
+alone drifts over a long session, because it is loaded once at startup and slides
+away from the current turn; the hook re-injects a short version of the rules on
+every prompt.
 
 ## Notes
 
