@@ -122,6 +122,13 @@ Claude will also automatically invoke skills based on context.
 | `seo`          | Meta tags, Open Graph, structured data    |
 | `ui-design`    | Tailwind CSS v4, accessibility baseline   |
 
+### Code Review
+
+| Skill       | Description                                                                   |
+| ----------- | ----------------------------------------------------------------------------- |
+| `open-pr`   | `/open-pr` — push the branch and open a PR with a concise, human-first body   |
+| `review-pr` | `/review-pr` — adversarial review of someone else's PR; drafts pending review |
+
 ### Utilities
 
 | Skill     | Description                                                                                                              |
