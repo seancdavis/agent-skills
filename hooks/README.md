@@ -4,11 +4,11 @@ Personal global hooks for [Claude Code](https://docs.anthropic.com/en/docs/claud
 
 ## concise-reminder
 
-A `UserPromptSubmit` hook that injects a few rules from the [Concise output style](../output-styles/concise.md) into model context on every prompt. Costs ~70 tokens per prompt.
+A `UserPromptSubmit` hook that injects a few rules from the [Concise output style](../output-styles/concise.md) into model context on every prompt. Costs ~110 tokens per prompt.
 
-**Not installed by default.** The output style is the primary mechanism, and Claude Code already re-injects a reminder of the active style on every turn. This hook is the fallback for when that stops being enough.
+**Install this alongside the output style.** The style alone was not enough in practice — a day of real use with it active still drifted back to long, jargon-heavy answers.
 
-**What it does differently:** the built-in reminder is a *pointer* — "the Concise style is active, follow it." The style's actual text sits at the top of the context window, where instructions lose influence as a conversation grows. This hook injects the rule *text* at the recency-weighted end instead, which is a different lever, not a louder one.
+**What it does differently:** Claude Code does re-inject a reminder every turn, but that reminder is a *pointer* — "the Concise style is active, follow it." The style's actual text was loaded at session start and sits at the top of the context window, sliding further from the current turn as the conversation grows. This hook injects the rule *text* at the recency-weighted end instead, which is a different lever, not a louder one.
 
 **Keep it a strict subset.** Every sentence in the reminder must already appear in the output style. It runs at max recency, so a paraphrase that drifts from the style will win over the style itself — which is exactly how the first version of this hook ended up contradicting it.
 
