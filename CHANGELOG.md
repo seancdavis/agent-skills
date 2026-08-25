@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.6.0] - 2026-08-25
+
+### Added
+
+- `review-pr` — an adversarial review companion for pull requests you didn't
+  write. It runs in three gated steps, stopping between each so the human
+  triages: **orient** (what problem the PR claims to solve, the approach, the
+  blast radius, CI status, and anything the description leaves out), **review**
+  (one lens per pass, fanned out to subagents, starting with the
+  does-it-do-what-it-claims check that generic review skips), and **draft** (a
+  _pending_ GitHub review, composed only from findings that survived triage).
+  Built on the premise that the reviewer has not read the code and the author
+  was probably an agent, so the PR description is a claim to verify rather than
+  a summary to trust.
+  - Checks the branch out and reads it locally — grepping a working tree beats
+    pulling files over the network one call at a time on both time and tokens.
+  - Treats CI output as the evidence instead of re-running the suite, and
+    treats a missing or unwired test suite as a finding in its own right.
+  - Splits reading from executing: reading the local tree is free, running
+    anything needs the human's say-so with the command named.
+  - One severity vocabulary in the terminal and on GitHub — Blocking,
+    Follow-up, Consider, Nit.
+  - Inline comments never prescribe the fix. First sentence states what's
+    wrong for a human skimming; an optional second paragraph carries what an
+    implementer needs.
+  - Creates the review with `event` omitted so it stays pending — the skill
+    never submits, pushes, or merges.
+
+### Changed
+
+- `README.md` and `CLAUDE.md` gain a **Code Review** section covering `open-pr`
+  and `review-pr`.
+
 ## [0.5.0] - 2026-08-22
 
 ### Added
