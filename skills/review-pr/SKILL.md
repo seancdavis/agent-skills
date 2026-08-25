@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Adversarial review of someone else's pull request, run as a companion for a human reviewer who does not know the code. Invoke with `/review-pr` (optionally a PR number, URL, or branch) when picking up a PR you didn't write and need to review well and fast. Runs in three gated steps — orient (what the PR claims, what it actually touches), review (skeptical, verified, one lens at a time, fanned out to subagents), then draft a pending GitHub review with inline comments you edit and submit yourself. Treats the PR author — increasingly an agent — as the adversary: every claim gets checked against the diff, and CI is the evidence rather than a local re-run. Leaves the review PENDING, never submits, never pushes, never merges. NOT for reviewing your own agent-built work — `autopilot` already QAs that.
+description: Adversarial review of someone else's pull request, run as a companion for a human reviewer who does not know the code. Invoke with `/review-pr` (optionally a PR number, URL, or branch) when picking up a PR you didn't write and need to review well and fast. Runs in three gated steps — orient (what the PR claims, what it actually touches), review (skeptical, verified, one lens at a time, fanned out to subagents), then draft a pending GitHub review with inline comments you edit and submit yourself. Treats the PR author — increasingly an agent — as the adversary: every claim gets checked against code you actually opened. Checks the branch out and reads it locally rather than pulling files over the network, and treats CI output as the evidence instead of re-running the suite. Leaves the review PENDING, never submits, never pushes, never merges. NOT for reviewing your own agent-built work — `autopilot` already QAs that.
 ---
 
 # Review PR — read it for me, then let me argue with it
@@ -21,13 +21,16 @@ Each step ends by **stopping**. Do not roll from one into the next — the human
 
 ## Step 1 — Orient
 
-Gather the PR's own account of itself and the shape of what it touches:
+**Get the branch onto the machine first.** Everything after this reads local files; the network is only for facts that live on GitHub — the description, the checks, the comments.
 
 ```sh
+gh pr checkout <n>          # local working copy of the PR branch
 gh pr view <n> --json title,body,author,files,commits,additions,deletions,baseRefName,url
 gh pr checks <n>
-gh pr diff <n>
+git diff <base>...HEAD      # the diff, read locally
 ```
+
+If the checkout can't happen — a fork you can't fetch, a dirty tree you shouldn't disturb — say so, and fall back to `gh pr diff <n>` with the reduced confidence that implies. A diff-only review can't check callers, so its findings are weaker and should be labelled that way.
 
 Then report, in well under a screen:
 
@@ -49,11 +52,11 @@ Only after they say go.
 
 An unverified finding is worse than no finding — it costs the human trust and the author time. So:
 
-- **Open the code, not the diff hunk.** A diff shows the change; it doesn't show the function it lives in, the callers, or the thing it broke three files over. Read around every change you intend to comment on.
-- **CI is the evidence.** If checks ran, use them. When one failed, read the actual failure (`gh run view <run-id> --log-failed`) and review _that_, rather than reasoning about what might be wrong. Don't recreate locally what CI already told you.
+- **Read code locally, always.** A diff shows the change; it doesn't show the function it lives in, the callers, or the thing it broke three files over. Grep the checked-out tree, open whole files, follow every symbol you intend to comment on. Pulling file contents through the network one call at a time is slower and costs more for a worse view — the checkout in step 1 exists so you don't do that.
+- **CI is the evidence — don't reproduce it.** If checks ran, use them. When one failed, read the actual failure (`gh run view <run-id> --log-failed`) and review _that_, rather than reasoning about what might be wrong or re-running the suite yourself. Reading a log you already have beats spending minutes regenerating it.
 - **No CI, or no tests wired to it, is itself a finding.** A test suite that never runs on PRs is a Blocking-or-Follow-up problem depending on the repo's norms.
-- **Ask before running anything locally.** If there's a real reason to check something out and run it — behavior CI can't tell you, a reproduction you need to see — say what you'd run and why, and wait. (This is a deliberately open question; when a good local-run case shows up, bring it back and we'll write the rule into this file.)
-- **Never write to any system.** No pushing, no commenting, no committing, no editing the branch. Reading and reporting only, until step 3's pending review.
+- **Reading is free; executing is not.** Reading and searching the local tree needs no permission. _Running_ anything — the test suite, a build, a script, the app — needs the human's say-so first: name the command and what it would tell you that CI can't, then wait. (This is deliberately open; when a good local-run case shows up, bring it back and we'll write the rule into this file.)
+- **Never write anything.** No pushing, no committing, no editing the branch, no comments or reactions on GitHub. Reading and reporting only, until step 3's pending review.
 
 ### One lens per pass
 
@@ -140,8 +143,8 @@ Then hand back the Files-tab URL (`<pr-url>/files`) and a one-line count of what
 ## Guardrails
 
 - **Never submit the review.** Pending only. Submitting is the human's action.
-- **Never push, commit, merge, close, or edit the PR branch.** This skill reads and drafts.
-- **Never run anything locally without asking**, and never anything that writes outside this machine.
+- **Never push, commit, merge, close, or edit the PR branch.** Checking it out is fine; changing it is not.
+- **Read the local tree freely. Ask before executing anything**, and never run anything that writes outside this machine.
 - **Never report a finding you didn't verify** — mark it uncertain or leave it out.
 - **Never prescribe fixes in comments.**
 
