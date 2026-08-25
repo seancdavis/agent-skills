@@ -97,6 +97,22 @@ Format for the terminal — this follows the Concise output style, and it is not
 
 Compose from the findings that survived triage. Nothing the human waved off goes in.
 
+### The body contract
+
+The review body is the hardest thing here to get right, because the default failure is silent: it reads as competent, and it reads as a machine. Two to four sentences, first person, in the reviewer's own voice.
+
+Say what you concluded and what the author should do next. That is the whole body.
+
+What keeps ending up in there and must not:
+
+- **Process narration.** "Checked this out and read it locally," "I went through each file." A human reviewer never reports that they read the code — it's assumed, and saying it makes the review about the reviewer.
+- **The verification trail.** "What I verified: exactly 11 pages mention X..." That's step 2's output. It's evidence that earns the conclusion, for the human triaging — the author needs the conclusion, not the audit. If a piece of it genuinely matters to the author, it's an inline comment on the line it concerns.
+- **Labeled sections.** "What I verified:", "Summary:", "Findings:" — a body short enough to need headings isn't short enough.
+- **A verdict line.** No "**Recommended verdict: approve.**" The verdict is the button the human presses; writing it out is a note-to-self published by accident.
+- **Counting the comments.** "Four comments below, none blocking." GitHub already shows the count, and the labels already carry the severity.
+
+Do note anything you deliberately left uncovered — an area you couldn't reach, a check that didn't run. That's the one thing the author can't see for themselves.
+
 ### The comment contract
 
 ```markdown
@@ -111,7 +127,7 @@ Two rules do most of the work:
 
 **Assume a mixed audience.** A human may read it; an agent may act on it. The label carries the priority, the first sentence carries the meaning for a person skimming, and the second paragraph — when there is one — carries what an implementer needs. That's why the first sentence is never the detailed one.
 
-Write it in Sean's voice, not review-bot voice. Load `human-readable` for the register: plain words, no ceremony, no "Consider refactoring this to leverage...". When you're unsure, ask a real question rather than asserting a soft finding.
+**Load `human-readable` before writing either the body or the comments**, and load it every run — this is the point where the output stops being terminal chatter and starts being something with the human's name on it. It is not optional, and the body needs it more than the comments do. Plain words, no ceremony, no "Consider refactoring this to leverage...". When you're unsure, ask a real question rather than asserting a soft finding.
 
 ### Post it as PENDING
 
@@ -125,7 +141,7 @@ gh api repos/{owner}/{repo}/pulls/{n}/reviews --input review.json
 
 ```json
 {
-  "body": "{summary + verdict recommendation}",
+  "body": "{2-4 sentences, per the body contract above}",
   "comments": [
     { "path": "src/lib/session.ts", "line": 42, "side": "RIGHT", "body": "**Blocking** — ..." }
   ]
@@ -136,9 +152,9 @@ Notes that will bite otherwise:
 
 - `line` must fall inside the diff. A comment that can't be anchored moves into the review body with a `file:line` pointer instead of being dropped.
 - Do **not** include `event`. Adding `"event": "COMMENT"` submits it immediately, which is the one thing this skill must not do.
-- The review body carries a **recommended verdict** — approve or request changes — as a line the human can keep or cut. The actual verdict is the button they press.
+- The verdict stays **out** of the body. Recommend approve or request-changes in the terminal when you hand back, and let the human press the button.
 
-Then hand back the Files-tab URL (`<pr-url>/files`) and a one-line count of what's in the draft. Stop.
+Then hand back the Files-tab URL (`<pr-url>/files`), a one-line count of what's in the draft, and which button you'd press. Stop.
 
 ## Guardrails
 
