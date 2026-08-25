@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.6.1] - 2026-08-25
+
+### Changed
+
+- `review-pr` gives the review body its own contract — two to four sentences in the reviewer's own voice, saying what you concluded and what the author does next. It previously had none, so the body fell back to Claude's default register while the inline comments held their shape.
+- The body contract names what kept leaking in: process narration, the verification trail meant for the human triaging, labeled sections, a written-out verdict, and a count of the comments.
+- The verdict moves out of the review body entirely — the skill recommends a button in the terminal and lets the human press it.
+- `human-readable` is now a required load before writing the review, not a suggestion at the end of the comment section.
+- `release` pins the GitHub release-notes format: bullets go out unwrapped and one sentence each, via `--notes-file`. The release page re-wraps on top of Prettier's 80 columns, which shreds a pasted changelog section.
+
 ## [0.6.0] - 2026-08-25
 
 ### Added
