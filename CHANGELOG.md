@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.6.2] - 2026-08-26
+
+### Changed
+
+- `review-pr` treats the review body as the leftovers rather than a summary — it carries only what has no line to attach to, so findings aren't read twice.
+- Every body sentence now faces one test: could this have been an inline comment? If yes it goes inline and never appears up top. Most bodies should be a single line.
+- Loading the author's voice profile moves to the first thing step 3 does, aimed at the terse end of that voice — a review comment reads closer to chat than to a blog post.
+- The skill carries a worked before-and-after of a real review body, since the rules alone weren't holding the register.
+- The recommended-verdict line is gone for good, along with any lean or comment tally. The verdict is the button the human presses.
+
 ## [0.6.1] - 2026-08-25
 
 ### Changed
