@@ -99,19 +99,28 @@ Compose from the findings that survived triage. Nothing the human waved off goes
 
 ### The body contract
 
-The review body is the hardest thing here to get right, because the default failure is silent: it reads as competent, and it reads as a machine. Two to four sentences, first person, in the reviewer's own voice.
+**The body is the leftovers, not the summary.** Its only job is carrying what has no line to attach to. Everything with a home inline goes inline and is never repeated up top — a body that recaps the comments makes the reader read every finding twice and hides the one thing that was only ever going to appear there.
 
-Say what you concluded and what the author should do next. That is the whole body.
+So the test for each sentence is: **could this have been an inline comment?** If yes, delete it and put it inline. What survives is usually one of:
+
+- Something **missing entirely** — absent code has no line to anchor to.
+- A pattern **across several files** that no single line represents.
+- A **question about the approach** rather than about any particular change.
+- **Coverage you didn't reach** — an area you couldn't check, a check that didn't run. The one thing the author can't see for themselves.
+
+When nothing survives that test, the body is one line: you left comments inline, and how you're leaning. That is a complete and correct body — most of them should look like it.
+
+One or two sentences by default, first person, in the reviewer's own voice. Four is the ceiling and needs a reason.
 
 What keeps ending up in there and must not:
+
+- **Restating the inline comments.** The single most common failure. "There's a race in the session handler, the migration is missing a down step, and the test doesn't assert the error case" — all three are already inline, on their lines, with more context than the recap carries.
 
 - **Process narration.** "Checked this out and read it locally," "I went through each file." A human reviewer never reports that they read the code — it's assumed, and saying it makes the review about the reviewer.
 - **The verification trail.** "What I verified: exactly 11 pages mention X..." That's step 2's output. It's evidence that earns the conclusion, for the human triaging — the author needs the conclusion, not the audit. If a piece of it genuinely matters to the author, it's an inline comment on the line it concerns.
 - **Labeled sections.** "What I verified:", "Summary:", "Findings:" — a body short enough to need headings isn't short enough.
 - **A verdict line.** No "**Recommended verdict: approve.**" The verdict is the button the human presses; writing it out is a note-to-self published by accident.
 - **Counting the comments.** "Four comments below, none blocking." GitHub already shows the count, and the labels already carry the severity.
-
-Do note anything you deliberately left uncovered — an area you couldn't reach, a check that didn't run. That's the one thing the author can't see for themselves.
 
 ### The comment contract
 
@@ -141,7 +150,7 @@ gh api repos/{owner}/{repo}/pulls/{n}/reviews --input review.json
 
 ```json
 {
-  "body": "{2-4 sentences, per the body contract above}",
+  "body": "{only what has no line to attach to — often one sentence}",
   "comments": [
     { "path": "src/lib/session.ts", "line": 42, "side": "RIGHT", "body": "**Blocking** — ..." }
   ]
