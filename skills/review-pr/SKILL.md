@@ -97,13 +97,34 @@ Format for the terminal — this follows the Concise output style, and it is not
 
 Compose from the findings that survived triage. Nothing the human waved off goes in.
 
+### Load the voice first — before writing a word
+
+Everything from here goes out on GitHub under the human's name, with no marker saying a model wrote it. So this is not the place to let the terminal register carry through.
+
+**Read the author's voice profile before drafting** — `docs/writing-voice.md`, else `~/.claude/writing-voice.md` — and load `human-readable` for the anti-tell rules. Every run, not just the first.
+
+Then aim at the **terse end** of that voice. A review comment sits far closer to how the author writes in chat than to how they write a blog post: short, direct, first person, willing to be a fragment. The profile's longer-form register is the wrong target here even though it's the same voice.
+
+The tell to watch for is **completeness**. A model writes the whole thought — setup, finding, consequence, resolution — because that reads as thorough. A person who reviews code all day writes the part you couldn't work out yourself and trusts you with the rest.
+
 ### The body contract
 
-The review body is the hardest thing here to get right, because the default failure is silent: it reads as competent, and it reads as a machine. Two to four sentences, first person, in the reviewer's own voice.
+**The body is the leftovers, not the summary.** Its only job is carrying what has no line to attach to. Everything with a home inline goes inline and is never repeated up top — a body that recaps the comments makes the reader read every finding twice and hides the one thing that was only ever going to appear there.
 
-Say what you concluded and what the author should do next. That is the whole body.
+So the test for each sentence is: **could this have been an inline comment?** If yes, delete it and put it inline. What survives is usually one of:
+
+- Something **missing entirely** — absent code has no line to anchor to.
+- A pattern **across several files** that no single line represents.
+- A **question about the approach** rather than about any particular change.
+- **Coverage you didn't reach** — an area you couldn't check, a check that didn't run. The one thing the author can't see for themselves.
+
+When nothing survives that test, the body is one line saying you left comments inline. That is a complete and correct body — most of them should look like it. No verdict, no lean, no tally: the verdict is the button, and saying it out loud publishes a note meant for the reviewer.
+
+One or two sentences by default, first person, in the reviewer's own voice. Four is the ceiling and needs a reason.
 
 What keeps ending up in there and must not:
+
+- **Restating the inline comments.** The single most common failure. "There's a race in the session handler, the migration is missing a down step, and the test doesn't assert the error case" — all three are already inline, on their lines, with more context than the recap carries.
 
 - **Process narration.** "Checked this out and read it locally," "I went through each file." A human reviewer never reports that they read the code — it's assumed, and saying it makes the review about the reviewer.
 - **The verification trail.** "What I verified: exactly 11 pages mention X..." That's step 2's output. It's evidence that earns the conclusion, for the human triaging — the author needs the conclusion, not the audit. If a piece of it genuinely matters to the author, it's an inline comment on the line it concerns.
@@ -111,7 +132,21 @@ What keeps ending up in there and must not:
 - **A verdict line.** No "**Recommended verdict: approve.**" The verdict is the button the human presses; writing it out is a note-to-self published by accident.
 - **Counting the comments.** "Four comments below, none blocking." GitHub already shows the count, and the labels already carry the severity.
 
-Do note anything you deliberately left uncovered — an area you couldn't reach, a check that didn't run. That's the one thing the author can't see for themselves.
+A real one, before and after:
+
+> Checked this out and read it locally. The sweep holds up.
+>
+> What I verified: exactly 11 pages mention Members — the 9 this PR changed, plus the two billing pages it deliberately skipped, and those two really are plan/usage table labels rather than navigation. No "Go to Members in the left navigation" instruction survives anywhere in the docs. Leaving the `app.netlify.com/.../members` deep links alone is the right call — EX-2916 covers those routes with redirects. And no agent-context grouping other than `deploy` sources any of these pages, so regenerating that one alone was correct.
+>
+> CodeRabbit's note about the step numbering in `security-scorecard.mdx` (1, 2, 4) is pre-existing and renders fine as an ordered list, so I'd leave it.
+>
+> Four comments below, none blocking.
+>
+> **Recommended verdict: approve.**
+
+Everything there is either process narration, the verification trail, a recap, or a verdict. What was actually left over:
+
+> Left a few notes inline. The step numbering in `security-scorecard.mdx` is pre-existing, so I'd leave it alone here.
 
 ### The comment contract
 
@@ -127,7 +162,7 @@ Two rules do most of the work:
 
 **Assume a mixed audience.** A human may read it; an agent may act on it. The label carries the priority, the first sentence carries the meaning for a person skimming, and the second paragraph — when there is one — carries what an implementer needs. That's why the first sentence is never the detailed one.
 
-**Load `human-readable` before writing either the body or the comments**, and load it every run — this is the point where the output stops being terminal chatter and starts being something with the human's name on it. It is not optional, and the body needs it more than the comments do. Plain words, no ceremony, no "Consider refactoring this to leverage...". When you're unsure, ask a real question rather than asserting a soft finding.
+Plain words, no ceremony, no "Consider refactoring this to leverage...". When you're unsure, ask a real question rather than asserting a soft finding.
 
 ### Post it as PENDING
 
@@ -141,7 +176,7 @@ gh api repos/{owner}/{repo}/pulls/{n}/reviews --input review.json
 
 ```json
 {
-  "body": "{2-4 sentences, per the body contract above}",
+  "body": "{only what has no line to attach to — often one sentence}",
   "comments": [
     { "path": "src/lib/session.ts", "line": 42, "side": "RIGHT", "body": "**Blocking** — ..." }
   ]
