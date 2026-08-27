@@ -15,23 +15,23 @@
 // companion's `task` with NO `--write`, so the plugin forces sandbox=read-only.
 //
 // Usage:
-//   node codex-audit.mjs --lens <simplicity|security> [--base <ref>] [--scope <text>] [--context <text>] [--effort <level>] [--model <name>]
+//   node codex-audit.mjs --lens <simplicity|security|comments> [--base <ref>] [--scope <text>] [--context <text>] [--effort <level>] [--model <name>]
 //   node codex-audit.mjs --prompt "<custom read-only review prompt>" [...]
 //   node codex-audit.mjs --prompt-file <path> [...]
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith("--")) {
+    if (a.startsWith('--')) {
       const key = a.slice(2);
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) out[key] = true;
+      if (next === undefined || next.startsWith('--')) out[key] = true;
       else {
         out[key] = next;
         i++;
@@ -42,41 +42,52 @@ function parseArgs(argv) {
 }
 
 function findCompanion() {
-  const cacheRoot = join(homedir(), ".claude", "plugins", "cache", "openai-codex", "codex");
+  const cacheRoot = join(homedir(), '.claude', 'plugins', 'cache', 'openai-codex', 'codex');
   if (existsSync(cacheRoot)) {
     // Newest version dir wins.
     for (const v of readdirSync(cacheRoot).sort().reverse()) {
-      const p = join(cacheRoot, v, "scripts", "codex-companion.mjs");
+      const p = join(cacheRoot, v, 'scripts', 'codex-companion.mjs');
       if (existsSync(p)) return p;
     }
   }
   const marketplace = join(
-    homedir(), ".claude", "plugins", "marketplaces", "openai-codex", "plugins", "codex", "scripts", "codex-companion.mjs"
+    homedir(),
+    '.claude',
+    'plugins',
+    'marketplaces',
+    'openai-codex',
+    'plugins',
+    'codex',
+    'scripts',
+    'codex-companion.mjs',
   );
   return existsSync(marketplace) ? marketplace : null;
 }
 
 const LENSES = {
   simplicity:
-    "Is this the simplest correct implementation? Flag unnecessary complexity, dead code, needless abstraction, over-engineering, and duplication. Ignore security and style.",
+    'Is this the simplest correct implementation? Flag unnecessary complexity, dead code, needless abstraction, over-engineering, and duplication. Ignore security and style.',
   security:
-    "Flag injection, authz/authn gaps, secret handling, unsafe input, SSRF, path traversal, and similar vulnerabilities. Ignore simplicity and style.",
+    'Flag injection, authz/authn gaps, secret handling, unsafe input, SSRF, path traversal, and similar vulnerabilities. Ignore simplicity and style.',
+  comments:
+    'Judge only the comments, never the code. A comment earns its place by stating a constraint the code cannot show, in 1-2 lines. Flag: ticket/person/doc references a cold reader cannot resolve; story or history narration ("used to fail", dated decisions, incident replays); narration that restates what the adjacent code visibly does; and blocks several times longer than their content needs. Do NOT flag: external contracts, ordering requirements, platform quirks, "do not simplify this back" warnings, invariants and trust boundaries, version-coupling warnings, or test intent and fixture provenance. Ignore correctness, simplicity, and security.',
 };
 
 function scopeClause(args) {
-  if (args.base) return `the changes on this branch versus ${args.base} (run: git diff ${args.base}...HEAD)`;
+  if (args.base)
+    return `the changes on this branch versus ${args.base} (run: git diff ${args.base}...HEAD)`;
   if (args.scope) return args.scope;
-  return "the uncommitted working-tree changes (run: git diff)";
+  return 'the uncommitted working-tree changes (run: git diff)';
 }
 
 function buildLensPrompt(args) {
   const lens = String(args.lens).toLowerCase();
   const framing = LENSES[lens];
   if (!framing) {
-    console.error(`Unknown lens "${args.lens}". Known lenses: ${Object.keys(LENSES).join(", ")}.`);
+    console.error(`Unknown lens "${args.lens}". Known lenses: ${Object.keys(LENSES).join(', ')}.`);
     process.exit(2);
   }
-  const contextLine = args.context ? `\nWork context: ${args.context}.` : "";
+  const contextLine = args.context ? `\nWork context: ${args.context}.` : '';
   return `<task>
 Review ONLY ${scopeClause(args)} for ${lens.toUpperCase()}. Read-only: do not modify any files.${contextLine}
 ${framing}
@@ -96,20 +107,20 @@ const args = parseArgs(process.argv.slice(2));
 
 let prompt;
 if (args.lens) prompt = buildLensPrompt(args);
-else if (args["prompt-file"]) prompt = readFileSync(args["prompt-file"], "utf8");
-else if (args.prompt && typeof args.prompt === "string") prompt = args.prompt;
+else if (args['prompt-file']) prompt = readFileSync(args['prompt-file'], 'utf8');
+else if (args.prompt && typeof args.prompt === 'string') prompt = args.prompt;
 else {
-  console.error("Provide --lens <name>, --prompt <text>, or --prompt-file <path>.");
+  console.error('Provide --lens <name>, --prompt <text>, or --prompt-file <path>.');
   process.exit(2);
 }
 
 const companion = findCompanion();
 if (!companion) {
-  console.error("Codex plugin not found under ~/.claude/plugins. Install it and run /codex:setup.");
+  console.error('Codex plugin not found under ~/.claude/plugins. Install it and run /codex:setup.');
   process.exit(1);
 }
 
-if (args["dry-run"]) {
+if (args['dry-run']) {
   console.log(`companion: ${companion}`);
   console.log(`read-only: yes (task, no --write)\n`);
   console.log(prompt);
@@ -117,10 +128,10 @@ if (args["dry-run"]) {
 }
 
 // `task` with NO `--write` => the companion forces sandbox=read-only, approvalPolicy=never.
-const taskArgs = [companion, "task"];
-if (args.model) taskArgs.push("--model", String(args.model));
-if (args.effort) taskArgs.push("--effort", String(args.effort));
+const taskArgs = [companion, 'task'];
+if (args.model) taskArgs.push('--model', String(args.model));
+if (args.effort) taskArgs.push('--effort', String(args.effort));
 taskArgs.push(prompt);
 
-const res = spawnSync("node", taskArgs, { stdio: ["ignore", "inherit", "inherit"] });
+const res = spawnSync('node', taskArgs, { stdio: ['ignore', 'inherit', 'inherit'] });
 process.exit(res.status ?? 0);

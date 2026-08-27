@@ -41,7 +41,7 @@ A spec small enough to be one slice collapses to the old behavior: one dispatch,
 
 ## Phase 2 — Audit (Codex, read-only, focused, separate passes)
 
-Run **one Codex pass per lens** — simplicity and security as _separate_ invocations. Never fold multiple lenses into one prompt; a mixed review is Codex's documented failure mode and yours (it fixates on one thread and the rest slides past).
+Run **one Codex pass per lens** — simplicity, security, and comments as _separate_ invocations. Never fold multiple lenses into one prompt; a mixed review is Codex's documented failure mode and yours (it fixates on one thread and the rest slides past).
 
 Each pass is a **single, allowlistable command** — the wrapper script resolves the Codex plugin path and builds the prompt internally, so there's no `$(…)`/pipe for Claude Code to choke on, and the whole audit runs on one permission approval:
 
@@ -49,7 +49,8 @@ Each pass is a **single, allowlistable command** — the wrapper script resolves
 node "${CLAUDE_PLUGIN_ROOT}/skills/autopilot/scripts/codex-audit.mjs" --lens security --base main
 ```
 
-- `--lens simplicity` or `--lens security` — one lens per run; the prompt template lives in the script.
+- `--lens simplicity`, `--lens security`, or `--lens comments` — one lens per run; the prompt template lives in the script.
+- The **comments** lens prunes the run's own bot smell: an unattended build writes comments nobody adversarially reviews, and this is the pass that catches them. Its taxonomy is the `comment-audit` skill's, compressed into the lens prompt. It reports only — findings go through Phase 3 triage and the developer applies them, same as any other lens.
 - `--base <ref>` reviews the branch against a base (`git diff <ref>...HEAD`); omit it to review the uncommitted working tree, or pass `--scope "<text>"` to describe the range.
 - Follow-up passes: add `--context "the developer just changed X to address prior findings; check against history"` so Codex focuses on what changed rather than re-reviewing everything.
 - For a freeform (non-lens) review, pass `--prompt "<text>"` or `--prompt-file <path>` instead of `--lens`.
@@ -69,7 +70,7 @@ Produce a **judged action list** ranked by severity — only the findings a deve
 
 ## Phase 4 — Fix loop
 
-Send the judged findings back to the **developer** subagent to fix (again: you don't fix them yourself). When it returns, **re-run any checks the fix could have disturbed** (rule 4) — audit fixes are a classic place for regressions to sneak in. Then re-audit — the follow-up passes are diff-focused: "here's what changed, check it against history." Loop until both lenses come back clean **or** you hit the spec's loop bound (default 3 rounds). Don't loop forever chasing a zero while Sean's away; a bounded stop with an honest report is the correct outcome.
+Send the judged findings back to the **developer** subagent to fix (again: you don't fix them yourself). When it returns, **re-run any checks the fix could have disturbed** (rule 4) — audit fixes are a classic place for regressions to sneak in. Then re-audit — the follow-up passes are diff-focused: "here's what changed, check it against history." Loop until every lens comes back clean **or** you hit the spec's loop bound (default 3 rounds). Don't loop forever chasing a zero while Sean's away; a bounded stop with an honest report is the correct outcome.
 
 ## Phase 5 — The completeness gate
 
@@ -119,3 +120,4 @@ Either way the read-only auditor guarantee holds: `task` without `--write` can't
 - `preflight` — the interactive setup and spec that this consumes.
 - `autopilot-iterate` — the follow-up loop after Sean reviews the PR; his review comments become the next control signal.
 - `grill-me` / `paper-trail` — heavier alignment and session logging, upstream of preflight.
+- `comment-audit` — the interactive version of the comments lens, for a branch you're auditing at the keyboard.
