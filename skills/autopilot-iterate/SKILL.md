@@ -46,7 +46,7 @@ If a comment has two readings, take the one consistent with the spec's intent an
   node "${CLAUDE_PLUGIN_ROOT}/skills/autopilot/scripts/codex-audit.mjs" --lens simplicity --base main --context "changes address PR review feedback: <summary>"
   ```
 
-  Use the lenses the spec named. Triage findings exactly as autopilot does; real ones go back to the developer.
+  The lenses are autopilot's three — `simplicity` (code and comments), `security`, and `spec` (which needs `--spec <path>`). Run the ones the feedback actually touches rather than all three by reflex; a comment-only round doesn't need a security pass. Triage findings exactly as autopilot does; real ones go back to the developer.
 
 - **Re-run the completeness gate**: the spec's done-signal still has to pass in full, plus any new checks the feedback implied.
 - Loop bound: the spec's (default 3 rounds). A bounded stop with an honest note beats endless polishing — same as the main run.

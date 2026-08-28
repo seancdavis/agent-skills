@@ -1,6 +1,6 @@
 ---
 name: autopilot
-description: The unattended build-and-audit run — the "you're gone" half of the flow. Invoked by `preflight`'s handoff, or with `/autopilot` pointed at a settled spec, when Sean has walked away. The orchestrator coordinates without writing code or auditing itself: it works the spec's plan as a slice queue (a fresh Claude developer subagent per slice, each slice's check run before advancing), fires Codex as a strictly read-only auditor on focused simplicity and security passes, triages the findings with judgment, loops real fixes back to the developer, and refuses to open the PR until the spec's done-signal measurably passes (the completeness gate). Works on a branch and ends by opening a PR (which fires the deploy preview) — marked ready-for-review when the completeness gate passes clean, left draft when anything is unmet; never merges or deploys. The auditor never fixes. For the interactive setup that precedes this, see `preflight`; for picking the run back up after Sean reviews the PR, see `autopilot-iterate`.
+description: The unattended build-and-audit run — the "you're gone" half of the flow. Invoked by `preflight`'s handoff, or with `/autopilot` pointed at a settled spec, when Sean has walked away. The orchestrator coordinates without writing code or auditing itself: it works the spec's plan as a slice queue (a fresh Claude developer subagent per slice, each slice's check run before advancing), fires Codex as a strictly read-only auditor on three focused passes (simplicity, security, spec conformance), triages the findings with judgment, loops real fixes back to the developer, and refuses to open the PR until the spec's done-signal measurably passes (the completeness gate). Works on a branch and ends by opening a PR (which fires the deploy preview) — marked ready-for-review when the completeness gate passes clean, left draft when anything is unmet; never merges or deploys. The auditor never fixes. For the interactive setup that precedes this, see `preflight`; for picking the run back up after Sean reviews the PR, see `autopilot-iterate`.
 ---
 
 # Autopilot — the unattended run
@@ -41,7 +41,9 @@ A spec small enough to be one slice collapses to the old behavior: one dispatch,
 
 ## Phase 2 — Audit (Codex, read-only, focused, separate passes)
 
-Run **one Codex pass per lens** — simplicity and security as _separate_ invocations. Never fold multiple lenses into one prompt; a mixed review is Codex's documented failure mode and yours (it fixates on one thread and the rest slides past).
+Run **one Codex pass per lens** — simplicity, security, and spec as _separate_ invocations. Never fold multiple lenses into one prompt; a mixed review is Codex's documented failure mode and yours (it fixates on one thread and the rest slides past).
+
+Two of the lenses are deliberately narrow so they stay in their lane; the third is the wide one that asks whether the branch is actually the thing the spec asked for.
 
 Each pass is a **single, allowlistable command** — the wrapper script resolves the Codex plugin path and builds the prompt internally, so there's no `$(…)`/pipe for Claude Code to choke on, and the whole audit runs on one permission approval:
 
@@ -49,7 +51,9 @@ Each pass is a **single, allowlistable command** — the wrapper script resolves
 node "${CLAUDE_PLUGIN_ROOT}/skills/autopilot/scripts/codex-audit.mjs" --lens security --base main
 ```
 
-- `--lens simplicity` or `--lens security` — one lens per run; the prompt template lives in the script.
+- `--lens simplicity`, `--lens security`, or `--lens spec` — one lens per run; the prompt template lives in the script.
+- **simplicity** also owns comments. Comment slop is over-engineering in prose, and an unattended run produces plenty of it — narration, dated stories, ticket references — that nobody adversarially reviews, because correctness review doesn't read prose. It matters more than tidiness: a future agent trusts a comment over the code, so a stale one misdirects the next edit. The prompt names what's protected (constraints the code can't show, "do not simplify this back" warnings, test intent) so the pass doesn't sweep the load-bearing ones.
+- **spec** requires `--spec docs/autopilot/<file>.md` and errors without it, rather than quietly reviewing the diff on its own terms. This is the lens aimed at a branch that cleanly implements 60% of the work — the narrow two both pass on code that is simply absent.
 - `--base <ref>` reviews the branch against a base (`git diff <ref>...HEAD`); omit it to review the uncommitted working tree, or pass `--scope "<text>"` to describe the range.
 - Follow-up passes: add `--context "the developer just changed X to address prior findings; check against history"` so Codex focuses on what changed rather than re-reviewing everything.
 - For a freeform (non-lens) review, pass `--prompt "<text>"` or `--prompt-file <path>` instead of `--lens`.
@@ -69,11 +73,13 @@ Produce a **judged action list** ranked by severity — only the findings a deve
 
 ## Phase 4 — Fix loop
 
-Send the judged findings back to the **developer** subagent to fix (again: you don't fix them yourself). When it returns, **re-run any checks the fix could have disturbed** (rule 4) — audit fixes are a classic place for regressions to sneak in. Then re-audit — the follow-up passes are diff-focused: "here's what changed, check it against history." Loop until both lenses come back clean **or** you hit the spec's loop bound (default 3 rounds). Don't loop forever chasing a zero while Sean's away; a bounded stop with an honest report is the correct outcome.
+Send the judged findings back to the **developer** subagent to fix (again: you don't fix them yourself). When it returns, **re-run any checks the fix could have disturbed** (rule 4) — audit fixes are a classic place for regressions to sneak in. Then re-audit — the follow-up passes are diff-focused: "here's what changed, check it against history." Loop until every lens comes back clean **or** you hit the spec's loop bound (default 3 rounds). Don't loop forever chasing a zero while Sean's away; a bounded stop with an honest report is the correct outcome.
 
 ## Phase 5 — The completeness gate
 
-**Audit-clean is not the stop condition — audit-clean _and_ done-signal-met is.** The audit only reviews the code that exists; a branch that cleanly implements 60% of the spec sails through both lenses. This gate is what catches that, and it's the answer to the run's most common failure mode: ending early because everything _present_ looks fine.
+**Audit-clean is not the stop condition — audit-clean _and_ done-signal-met is.** This gate is the answer to the run's most common failure mode: ending early because everything _present_ looks fine.
+
+The spec lens (Phase 2) and this gate both ask "is it done," and the difference between them is the point. The lens **reads** — Codex compares the code to the spec's intent and reports what it judges missing, which catches a requirement implemented in name only, passing its check while doing the wrong thing. The gate **measures** — you run the done-signal commands and observe what they return, which catches what a reader talks themselves out of. Running a command is sensing, not auditing, so it stays with you (rule 4) and doesn't compromise the independence that keeps you out of your own review. Neither substitutes for the other; a lens finding is a claim, a failed check is a fact.
 
 Re-read the spec from disk — don't trust your memory of it; a long run may have compacted it away. Then walk the done-signal item by item and **run each check**: the test command, the greps, the build, plus any slice checks you have doubts about. Every item gets a verdict — met, with the command output as evidence, or unmet.
 
