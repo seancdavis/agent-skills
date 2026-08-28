@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.6.3] - 2026-08-28
+
+### Added
+
+- `autopilot` gains a third audit lens, `spec`, which walks the settled spec requirement by requirement and reports what is missing or half-built. It requires `--spec <path>` and errors without one, so it can never quietly degrade into a generic review.
+
+### Changed
+
+- The `simplicity` lens now owns comments too, flagging narration, dated stories, and ticket references a future reader can't resolve — while naming the comments it must protect, like constraints the code can't show and "do not simplify this back" warnings.
+- `autopilot`'s Phase 5 spells out the division of labor between the spec lens and the completeness gate: the lens reads the code and reports what it judges missing, the gate runs the done-signal and measures. Both feed triage, and neither substitutes for the other.
+- `autopilot-iterate` re-audits with the same three lenses, run selectively against whatever the review feedback actually touched rather than all three by reflex.
+
 ## [0.6.2] - 2026-08-26
 
 ### Changed
