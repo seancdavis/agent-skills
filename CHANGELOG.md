@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.6.4] - 2026-08-28
+
+### Changed
+
+- `/release` now pushes and cuts the GitHub release on its own instead of stopping to confirm — the skill is user-invocable only, so invoking it is the authorization. Pass `--no-publish` to stop at the local commit and tag.
+- The guardrails are unchanged: releasing off `main`, a dirty tree, or manifest drift still stop and ask, since those are questions about what gets released rather than whether to ship it.
+
 ## [0.6.3] - 2026-08-28
 
 ### Added
