@@ -1,12 +1,12 @@
 ---
 name: release
-description: Cut a new version of this plugin. Invoke when the user types `/release` or says "bump the version", "cut a release", "tag a new version", "ship a release", or "publish a new version" of the seancdavis-skills plugin. Bumps the version in both manifests, updates the changelog, commits, and tags in one consistent step so the version numbers never drift apart. NOT for application releases in other repos.
+description: Cut and publish a new version of this plugin. Invoke when the user types `/release` or says "bump the version", "cut a release", "tag a new version", "ship a release", or "publish a new version" of the seancdavis-skills plugin. Bumps the version in both manifests, updates the changelog, commits, tags, pushes, and creates the GitHub release in one step so the version numbers never drift apart. Publishing is the default; pass `--no-publish` to stop at the local tag. NOT for application releases in other repos.
 disable-model-invocation: true
 ---
 
 # Release
 
-Cut a new version of this plugin in one step — bump the version in both manifests, update the changelog, commit, and tag — so `plugin.json`, `marketplace.json`, the git tag, and `CHANGELOG.md` never drift apart (the failure mode this skill exists to prevent).
+Cut a new version of this plugin in one step — bump the version in both manifests, update the changelog, commit, tag, push, and cut the GitHub release — so `plugin.json`, `marketplace.json`, the git tag, and `CHANGELOG.md` never drift apart (the failure mode this skill exists to prevent). It runs end to end without checking in; the questions it does ask are about _what_ to release, never whether to ship it.
 
 ## Versioning model
 
@@ -33,9 +33,11 @@ Sanity-check the target is greater than the current version unless the user expl
 4. Commit — stage only the two manifests and the changelog: `chore(release): vX.Y.Z`.
 5. Tag: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
 
-## 3. Publish (ask first)
+## 3. Publish
 
-After the local commit + tag, **ask before touching the remote** — unless the user already said "push" / "publish" or passed `--publish`. On confirmation:
+**Publishing is the default — don't ask.** Invoking this skill _is_ the authorization: it's `disable-model-invocation: true`, so nothing but a deliberate `/release` can reach here, and a release that stops at a local tag isn't a release. Stop before the remote only if the user passed `--no-publish` or said local-only, or if a guardrail below actually tripped.
+
+Straight through, after the local commit + tag:
 
 - `git push origin HEAD` then `git push origin vX.Y.Z`.
 - `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <file>`, where the file holds this version's changelog section **without** its `## [X.Y.Z]` heading (GitHub shows the version already).
