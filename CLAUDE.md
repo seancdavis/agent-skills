@@ -124,11 +124,10 @@ Claude will also automatically invoke skills based on context.
 
 ### Code Review
 
-| Skill           | Description                                                                     |
-| --------------- | ------------------------------------------------------------------------------- |
-| `open-pr`       | `/open-pr` — push the branch and open a PR with a concise, human-first body     |
-| `review-pr`     | `/review-pr` — adversarial review of someone else's PR; drafts pending review   |
-| `comment-audit` | `/comment-audit` — prune narration, ticket refs, and story comments from a diff |
+| Skill       | Description                                                                   |
+| ----------- | ----------------------------------------------------------------------------- |
+| `open-pr`   | `/open-pr` — push the branch and open a PR with a concise, human-first body   |
+| `review-pr` | `/review-pr` — adversarial review of someone else's PR; drafts pending review |
 
 ### Utilities
 

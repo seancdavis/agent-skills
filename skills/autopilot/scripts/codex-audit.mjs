@@ -15,7 +15,7 @@
 // companion's `task` with NO `--write`, so the plugin forces sandbox=read-only.
 //
 // Usage:
-//   node codex-audit.mjs --lens <simplicity|security|comments> [--base <ref>] [--scope <text>] [--context <text>] [--effort <level>] [--model <name>]
+//   node codex-audit.mjs --lens <simplicity|security|spec> [--base <ref>] [--scope <text>] [--spec <path>] [--context <text>] [--effort <level>] [--model <name>]
 //   node codex-audit.mjs --prompt "<custom read-only review prompt>" [...]
 //   node codex-audit.mjs --prompt-file <path> [...]
 
@@ -66,11 +66,10 @@ function findCompanion() {
 
 const LENSES = {
   simplicity:
-    'Is this the simplest correct implementation? Flag unnecessary complexity, dead code, needless abstraction, over-engineering, and duplication. Ignore security and style.',
+    'Is this the simplest correct implementation? Flag unnecessary complexity, dead code, needless abstraction, over-engineering, and duplication. Comments are in scope and are the same failure in prose — flag narration that restates what the adjacent code visibly does, story or history comments ("used to fail", dated decisions, incident replays), ticket or person references a future reader cannot resolve, and blocks several times longer than their content needs. A future agent trusts a comment over the code, so a stale or narrating comment misdirects the next edit. Do NOT flag comments that state a constraint the code cannot show: external contracts, ordering requirements, platform quirks, "do not simplify this back" warnings, invariants and trust boundaries, version-coupling warnings, or test intent and fixture provenance. Ignore security and style.',
   security:
     'Flag injection, authz/authn gaps, secret handling, unsafe input, SSRF, path traversal, and similar vulnerabilities. Ignore simplicity and style.',
-  comments:
-    'Judge only the comments, never the code. A comment earns its place by stating a constraint the code cannot show, in 1-2 lines. Flag: ticket/person/doc references a cold reader cannot resolve; story or history narration ("used to fail", dated decisions, incident replays); narration that restates what the adjacent code visibly does; and blocks several times longer than their content needs. Do NOT flag: external contracts, ordering requirements, platform quirks, "do not simplify this back" warnings, invariants and trust boundaries, version-coupling warnings, or test intent and fixture provenance. Ignore correctness, simplicity, and security.',
+  spec: "Does this actually implement the spec? Walk the spec's requirements one at a time against the code and report each that is missing, half-built, or built differently than specified. Code that is PRESENT always looks fine — absence is what you are hunting, so account for every requirement rather than reviewing what happens to be in the diff. Ignore simplicity, security, and style.",
 };
 
 function scopeClause(args) {
@@ -87,9 +86,20 @@ function buildLensPrompt(args) {
     console.error(`Unknown lens "${args.lens}". Known lenses: ${Object.keys(LENSES).join(', ')}.`);
     process.exit(2);
   }
+  // The spec lens is measuring against a document, so a missing or wrong path
+  // makes it silently review the diff on its own terms instead.
+  if (lens === 'spec' && typeof args.spec !== 'string') {
+    console.error('The spec lens requires --spec <path> pointing at the settled spec.');
+    process.exit(2);
+  }
+  if (typeof args.spec === 'string' && !existsSync(args.spec)) {
+    console.error(`Spec not found at "${args.spec}".`);
+    process.exit(2);
+  }
   const contextLine = args.context ? `\nWork context: ${args.context}.` : '';
+  const specLine = args.spec ? `\nThe spec is at ${args.spec} — read it first, in full.` : '';
   return `<task>
-Review ONLY ${scopeClause(args)} for ${lens.toUpperCase()}. Read-only: do not modify any files.${contextLine}
+Review ONLY ${scopeClause(args)} for ${lens.toUpperCase()}. Read-only: do not modify any files.${contextLine}${specLine}
 ${framing}
 </task>
 <structured_output_contract>
