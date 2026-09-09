@@ -77,14 +77,14 @@ Mixed reviews fixate: the pass finds one interesting thread, follows it, and the
 
 ### Report it
 
-Severity vocabulary — the same four labels here and in the GitHub comments:
+Severity vocabulary — the same four levels here and in the GitHub comments, though they're written differently in each. Bold in the terminal; bracketed and lowercase on GitHub (see the comment contract in step 3).
 
-| Label         | Means                                               |
-| ------------- | --------------------------------------------------- |
-| **Blocking**  | Must be fixed before merge.                         |
-| **Follow-up** | Real, but shouldn't hold the merge. Needs an issue. |
-| **Consider**  | A judgment call worth the author's attention.       |
-| **Nit**       | Small. Take it or leave it.                         |
+| Terminal      | GitHub        | Means                                               |
+| ------------- | ------------- | --------------------------------------------------- |
+| **Blocking**  | `[blocking]`  | Must be fixed before merge.                         |
+| **Follow-up** | `[follow-up]` | Real, but shouldn't hold the merge. Needs an issue. |
+| **Consider**  | `[consider]`  | A judgment call worth the author's attention.       |
+| **Nit**       | `[nit]`       | Small. Take it or leave it.                         |
 
 Format for the terminal — this follows the Concise output style, and it is not optional:
 
@@ -151,12 +151,16 @@ Everything there is either process narration, the verification trail, a recap, o
 ### The comment contract
 
 ```markdown
-**Blocking** — {one sentence: what is wrong}
+[blocking] {one sentence: what is wrong}
 
 {Optional second paragraph: the consequence, or the context needed to act. Only when the reader genuinely can't act without it.}
 ```
 
-Two rules do most of the work:
+The label is `[blocking]`, `[follow-up]`, `[consider]` or `[nit]` — square brackets, lowercase, no bold, no em dash after it. The sentence runs straight on as if the tag were a word in it. Someone leaving review comments all day types a tag and keeps going; they don't format a header.
+
+And **no bold anywhere in the comment** — not on the label, not on a phrase you want to stress. Bold is the tell that something was rendered rather than typed. Backticks on identifiers are fine; those are how people write code in prose.
+
+Two more rules do most of the rest:
 
 **Never prescribe the fix.** State what's wrong and stop. You don't know this codebase well enough to design in it, the author does, and a comment that only names the problem can't smuggle in a bad assumption. "This runs before the auth check" — not "move this below line 40."
 
@@ -178,7 +182,7 @@ gh api repos/{owner}/{repo}/pulls/{n}/reviews --input review.json
 {
   "body": "{only what has no line to attach to — often one sentence}",
   "comments": [
-    { "path": "src/lib/session.ts", "line": 42, "side": "RIGHT", "body": "**Blocking** — ..." }
+    { "path": "src/lib/session.ts", "line": 42, "side": "RIGHT", "body": "[blocking] ..." }
   ]
 }
 ```
