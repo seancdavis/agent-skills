@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.6.6] - 2026-09-09
+
+### Changed
+
+- `review-pr` now writes its GitHub inline comments with lowercase bracketed severity tags — `[blocking]`, `[follow-up]`, `[consider]`, `[nit]` — running straight into the sentence, the way someone leaving review comments all day actually types them. The terminal report keeps the bold labels.
+- Review comments ban bold entirely, since rendered emphasis is the clearest tell that a comment was generated rather than typed. Backticks on identifiers are still fine.
+
 ## [0.6.5] - 2026-09-06
 
 ### Changed
