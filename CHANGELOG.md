@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.7.0] - 2026-09-11
+
+### Added
+
+- `/dumb-it-down` skill — redoes the last answer in plain, literal terms at the
+  same length, for when it assumed background you don't have. It also triggers
+  on "simplify" about an explanation, and stays at that level for the rest of
+  the session.
+
+### Changed
+
+- The Concise output style assumes you don't remember how the system works: it
+  says what a thing does before naming its parts, and says the concrete thing
+  instead of a stand-in word like "floor." The reminder hook carries the same
+  rules.
+
 ## [0.6.6] - 2026-09-09
 
 ### Changed
