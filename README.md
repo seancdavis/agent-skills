@@ -4,7 +4,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opin
 
 ## What's Included
 
-33 skills covering the full web development lifecycle:
+36 skills covering the full web development lifecycle:
 
 | Category                  | Skills                                                                     |
 | ------------------------- | -------------------------------------------------------------------------- |
@@ -18,7 +18,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opin
 | **Project Documentation** | Grill-me interviews, session logs, ADRs, living principles doc             |
 | **Writing**               | Personal voice profiles, human-readable public prose                       |
 | **Extras**                | AI workflows, transactional email, SEO                                     |
-| **Utilities**             | Copy conversation output to the clipboard as Markdown                      |
+| **Utilities**             | Copy output to the clipboard, re-explain an answer in plain terms          |
 
 ## Installation
 
@@ -132,9 +132,10 @@ Skills are invoked automatically by Claude based on context, or manually:
 
 ### Utilities
 
-| Skill  | Description                                                                              |
-| ------ | ---------------------------------------------------------------------------------------- |
-| `copy` | `/copy` slash command — copy conversation output to the system clipboard as raw Markdown |
+| Skill          | Description                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| `clip`         | `/clip` slash command — copy conversation output to the system clipboard as raw Markdown                   |
+| `dumb-it-down` | `/dumb-it-down` — redo the last answer in plain, literal terms, assuming no memory of how the system works |
 
 ## Output Style
 

@@ -23,6 +23,10 @@ What it asks for:
   ask for it.
 - **No assumed knowledge of the code.** Every identifier gets a plain-language
   gloss inline the first time it appears, in the sentence that uses it.
+- **No assumed memory of the system.** Say what a thing does before naming its
+  parts, and say the concrete thing instead of a coined label for it ("use a
+  faster shutter," not "you went below your floor"). Pairs with the
+  `dumb-it-down` skill for when an answer still starts too high.
 - **Prose by default.** Bold-lead paragraphs are reserved for options or
   comparisons you asked for — using them everywhere is what makes answers grow.
 
