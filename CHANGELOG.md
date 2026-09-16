@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.7.1] - 2026-09-16
+
+### Changed
+
+- `open-pr` bodies now lead with a plain-language paragraph — the problem, then
+  what the PR does about it — written so someone who has never opened the repo
+  can follow it. The technical bullets stay below, and a new "How it was
+  verified" section says what was actually checked.
+- `open-pr` never signs the PR: no attribution, no session link, no mention of a
+  model. Set `attribution.pr` to an empty string in settings to stop the harness
+  appending one.
+- `review-pr` now reviews from two independent sides at once — Claude subagents
+  taking one angle each, and read-only Codex passes on three of the same angles
+  — and judges the disagreement between them rather than trusting either. Its
+  orientation step hands the reading to a cheaper subagent and retells it
+  plainly.
+
+### Added
+
+- `skills/review-pr/scripts/codex-review.mjs` — a read-only Codex review pass
+  per angle (claims, correctness, security), runnable as one allowlistable
+  command.
+
 ## [0.7.0] - 2026-09-11
 
 ### Added
