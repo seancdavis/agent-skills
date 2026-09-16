@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Adversarial review of someone else's pull request, run as a companion for a human reviewer who does not know the code. Invoke with `/review-pr` (optionally a PR number, URL, or branch) when picking up a PR you didn't write and need to review well and fast. Runs in three gated steps — orient (what the PR claims, what it actually touches), review (skeptical, verified, one lens at a time, fanned out to subagents), then draft a pending GitHub review with inline comments you edit and submit yourself. Treats the PR author — increasingly an agent — as the adversary: every claim gets checked against code you actually opened. Checks the branch out and reads it locally rather than pulling files over the network, and treats CI output as the evidence instead of re-running the suite. Leaves the review PENDING, never submits, never pushes, never merges. NOT for reviewing your own agent-built work — `autopilot` already QAs that.
+description: Adversarial review of someone else's pull request, run as a companion for a human reviewer who does not know the code. Invoke with `/review-pr` (optionally a PR number, URL, or branch) when picking up a PR you didn't write and need to review well and fast. Runs in three gated steps — orient (what the PR claims, what it actually touches, delegated to a cheap subagent and retold plainly), review (two independent sides at once: Claude subagents one lens each, and read-only Codex passes on three of the same lenses, with this session judging the delta between them), then draft a pending GitHub review with inline comments you edit and submit yourself. Treats the PR author — increasingly an agent — as the adversary: every claim gets checked against code you actually opened. Checks the branch out and reads it locally rather than pulling files over the network, and treats CI output as the evidence instead of re-running the suite. Leaves the review PENDING, never submits, never pushes, never merges. NOT for reviewing your own agent-built work — `autopilot` already QAs that.
 ---
 
 # Review PR — read it for me, then let me argue with it
@@ -10,6 +10,14 @@ You are reviewing a pull request **someone else wrote**, for a human who has not
 **The reviewer doesn't know the codebase.** Most review output assumes otherwise — it opens with findings, names files and symbols cold, and leaves the human to reconstruct what the PR even is. Orientation comes first here, always.
 
 **The author is probably an agent, and possibly the same model as you.** So it is not a colleague whose judgment you extend trust to; it's a system that produces confident, plausible, well-formatted output whether or not it's right. The PR description is a _claim_, not a summary. Every finding is checked against code you actually opened.
+
+## Who does what
+
+- **Orchestrator** — this session (Opus or Fable). Scopes the passes, judges what comes back, and talks to the human. It does not read the whole PR itself and does not review.
+- **Reviewers** — Claude subagents (`Agent`, model `sonnet`), one per lens, reading the checked-out tree.
+- **Second opinion** — Codex, read-only, on three of the same lenses, launched at the same time as the reviewers and from the same branch, without seeing their findings.
+
+The second opinion is **independent, not a checker.** Two reviews that never saw each other produce a delta, and the delta is what's worth the orchestrator's time: what both sides raised is almost certainly real, and what only one side raised is where opening the code actually decides something. A model handed Claude's list and asked to validate it can only shrink that list — it never contributes the finding Claude's lenses missed.
 
 ## The three gates
 
@@ -32,7 +40,9 @@ git diff <base>...HEAD      # the diff, read locally
 
 If the checkout can't happen — a fork you can't fetch, a dirty tree you shouldn't disturb — say so, and fall back to `gh pr diff <n>` with the reduced confidence that implies. A diff-only review can't check callers, so its findings are weaker and should be labelled that way.
 
-Then report, in well under a screen:
+**Delegate the reading; keep the retelling.** Hand a `sonnet` subagent the base ref and the PR body and ask it for the five things below, with a tight return contract. Reading a whole branch is the token-heavy part and doesn't need the expensive model — deciding what the human needs to hear does, and that stays here.
+
+Then report, in well under a screen. Write it the way `dumb-it-down` writes: the problem in terms someone would notice, no identifier used before it's explained, no file names where a plain phrase works.
 
 - **What problem it says it's solving**, in plain words — the user-facing or system-facing thing that was wrong.
 - **The approach it took** — the shape of the solution, not a file list. "Moves session lookup into middleware" beats "changes 4 files in `src/lib/`."
@@ -58,15 +68,43 @@ An unverified finding is worse than no finding — it costs the human trust and 
 - **Reading is free; executing is not.** Reading and searching the local tree needs no permission. _Running_ anything — the test suite, a build, a script, the app — needs the human's say-so first: name the command and what it would tell you that CI can't, then wait. (This is deliberately open; when a good local-run case shows up, bring it back and we'll write the rule into this file.)
 - **Never write anything.** No pushing, no committing, no editing the branch, no comments or reactions on GitHub. Reading and reporting only, until step 3's pending review.
 
-### One lens per pass
+### One lens per pass, on both sides
 
-Mixed reviews fixate: the pass finds one interesting thread, follows it, and the rest slides past. Run these as **separate passes**, and fan them out to subagents when the PR is big enough to warrant it — each subagent gets one lens and a tight return contract (finding, `file:line`, evidence, confidence).
+Mixed reviews fixate: the pass finds one interesting thread, follows it, and the rest slides past. So every pass gets exactly **one lens**, and the two sides run at the same time.
+
+**The Claude side** — one `sonnet` subagent per lens, all five, dispatched together:
 
 1. **Does it do what it claims?** The sharpest lens, and the one generic review skips. Walk the description's claims one at a time against the diff. Partial implementations pass every other check — code that's _present_ looks fine, and nothing flags what's missing.
 2. **Correctness.** Real bugs, with a concrete failure case. If you can't name inputs that produce the wrong result, you have a suspicion, not a finding.
 3. **Security and data exposure.** Auth boundaries, user-scoped queries, secrets, anything user-supplied reaching a query or a filesystem path.
 4. **Fit.** Does it match how this codebase already does things, or reinvent something that exists? Duplication and convention drift.
 5. **Tests.** Not "are there tests" but "do these tests fail if the code is wrong?" A test that passes against a broken implementation is a finding.
+
+**The Codex side** — three of those same lenses, each its own read-only run, launched in the same breath as the subagents so both sides work from the same branch without seeing each other:
+
+```sh
+node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens correctness --base main
+node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens security --base main
+gh pr view <n> --json body -q .body > /tmp/pr-body.md   # the claims lens needs the description
+node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens claims --base main --claims-file /tmp/pr-body.md
+```
+
+Read-only is **structural**: the script calls the Codex companion's `task` with no `--write`, so the plugin forces a read-only sandbox — Codex cannot edit or even prompt to edit. The lens prompts live in `codex-review.mjs`; tune them there. Allowlist that one command in settings and all three passes run on a single approval.
+
+Codex doesn't get the other two lenses. Whether the change fits the codebase's conventions, and whether the tests would fail on a broken implementation, both lean on knowing the project — which is where an outside model pays least.
+
+**Both sides return the same shape**, or the comparison can't happen: title, `file:line`, what's wrong in one sentence, evidence (what was opened and what it showed), severity, confidence 0–1.
+
+### Judge the delta
+
+Neither dump goes to the human. Line the two sets up by file and claim, and spend the effort where they disagree:
+
+- **Both sides raised it** — almost certainly real. Check it's genuinely the same finding and not two things that look alike, then keep it.
+- **Only one side raised it** — this is where you open the code yourself. It's either something the other side's lens couldn't see or a confident model being wrong, and the only way to tell is to read it.
+- **One side was confidently wrong** — that's evidence about the rest of that pass, not just that finding. Ask what it fixated on, and whether the lens is worth a second run with `--context` naming what it missed.
+- **Neither side raised something you expected** — a file no lens covered, a check that never ran. Absence is a finding; say it.
+
+The judged list, not either side's output, is what gets reported.
 
 ### Skepticism rules
 
@@ -198,6 +236,7 @@ Then hand back the Files-tab URL (`<pr-url>/files`), a one-line count of what's 
 ## Guardrails
 
 - **Never submit the review.** Pending only. Submitting is the human's action.
+- **Never route a review pass through anything that can write.** Both sides read; only step 3 produces output, and only as a pending review.
 - **Never push, commit, merge, close, or edit the PR branch.** Checking it out is fine; changing it is not.
 - **Read the local tree freely. Ask before executing anything**, and never run anything that writes outside this machine.
 - **Never report a finding you didn't verify** — mark it uncertain or leave it out.
@@ -207,5 +246,6 @@ Then hand back the Files-tab URL (`<pr-url>/files`), a one-line count of what's 
 
 - `open-pr` — the other side: opening a PR for someone else to review.
 - `human-readable` — the voice for the GitHub-facing comments.
-- `autopilot` — QAs agent-built work before the PR exists; that's why this skill isn't for your own branches.
+- `dumb-it-down` — the plainness bar for the orientation report.
+- `autopilot` — QAs agent-built work before the PR exists; that's why this skill isn't for your own branches. Its `codex-audit.mjs` is the sibling of this skill's `codex-review.mjs`, with lenses for auditing work you just built rather than reviewing someone else's.
 - `research` — the fan-out pattern the lens passes borrow.
