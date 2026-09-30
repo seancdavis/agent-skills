@@ -38,9 +38,19 @@ gh pr checks <n>
 git diff <base>...HEAD      # the diff, read locally
 ```
 
+**Pull the PR's facts into files once, up front.** Every pass in step 2 — Claude subagents and Codex alike — reads the same copy, so nobody re-fetches it and nobody reaches for the test suite to find out what CI already knows.
+
+```sh
+gh pr view <n> --json body -q .body > /tmp/pr-<n>-body.md
+gh pr checks <n> > /tmp/pr-<n>-ci.md
+gh run view <run-id> --log-failed >> /tmp/pr-<n>-ci.md   # once per failed run
+```
+
+Keep the CI file readable: for a long failure log, trim to the error and the lines around it. If checks are still running, say so in the orient report, and refresh the file before step 2 so the passes see the finished results.
+
 If the checkout can't happen — a fork you can't fetch, a dirty tree you shouldn't disturb — say so, and fall back to `gh pr diff <n>` with the reduced confidence that implies. A diff-only review can't check callers, so its findings are weaker and should be labelled that way.
 
-**Delegate the reading; keep the retelling.** Hand a `sonnet` subagent the base ref and the PR body and ask it for the five things below, with a tight return contract. Reading a whole branch is the token-heavy part and doesn't need the expensive model — deciding what the human needs to hear does, and that stays here.
+**Delegate the reading; keep the retelling.** Hand a `sonnet` subagent the base ref, the PR body, and the CI file, and ask it for the five things below, with a tight return contract. Reading a whole branch is the token-heavy part and doesn't need the expensive model — deciding what the human needs to hear does, and that stays here.
 
 Then report, in well under a screen. Write it the way `dumb-it-down` writes: the problem in terms someone would notice, no identifier used before it's explained, no file names where a plain phrase works.
 
@@ -63,7 +73,8 @@ Only after they say go.
 An unverified finding is worse than no finding — it costs the human trust and the author time. So:
 
 - **Read code locally, always.** A diff shows the change; it doesn't show the function it lives in, the callers, or the thing it broke three files over. Grep the checked-out tree, open whole files, follow every symbol you intend to comment on. Pulling file contents through the network one call at a time is slower and costs more for a worse view — the checkout in step 1 exists so you don't do that.
-- **CI is the evidence — don't reproduce it.** If checks ran, use them. When one failed, read the actual failure (`gh run view <run-id> --log-failed`) and review _that_, rather than reasoning about what might be wrong or re-running the suite yourself. Reading a log you already have beats spending minutes regenerating it.
+- **CI is the evidence — don't reproduce it.** If checks ran, use them. The CI file from step 1 carries the results and the failure logs; review _those_, rather than reasoning about what might be wrong or re-running the suite. When a pass needs more — a full log, an artifact, a check's details — the orchestrator fetches it and appends it to the CI file. Reading a log you already have beats spending minutes regenerating it.
+- **The passes don't read this file.** Subagents and Codex only see what they're handed, so every pass's prompt carries the CI file and the rule: read and search freely, never run tests, builds, installs, or project scripts. Codex gets it through `--ci-file`; each subagent prompt states it outright.
 - **No CI, or no tests wired to it, is itself a finding.** A test suite that never runs on PRs is a Blocking-or-Follow-up problem depending on the repo's norms.
 - **Reading is free; executing is not.** Reading and searching the local tree needs no permission. _Running_ anything — the test suite, a build, a script, the app — needs the human's say-so first: name the command and what it would tell you that CI can't, then wait. (This is deliberately open; when a good local-run case shows up, bring it back and we'll write the rule into this file.)
 - **Never write anything.** No pushing, no committing, no editing the branch, no comments or reactions on GitHub. Reading and reporting only, until step 3's pending review.
@@ -83,13 +94,12 @@ Mixed reviews fixate: the pass finds one interesting thread, follows it, and the
 **The Codex side** — three of those same lenses, each its own read-only run, launched in the same breath as the subagents so both sides work from the same branch without seeing each other:
 
 ```sh
-node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens correctness --base main
-node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens security --base main
-gh pr view <n> --json body -q .body > /tmp/pr-body.md   # the claims lens needs the description
-node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens claims --base main --claims-file /tmp/pr-body.md
+node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens correctness --base main --ci-file /tmp/pr-<n>-ci.md
+node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens security --base main --ci-file /tmp/pr-<n>-ci.md
+node "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/scripts/codex-review.mjs" --lens claims --base main --ci-file /tmp/pr-<n>-ci.md --claims-file /tmp/pr-<n>-body.md
 ```
 
-Read-only is **structural**: the script calls the Codex companion's `task` with no `--write`, so the plugin forces a read-only sandbox — Codex cannot edit or even prompt to edit. The lens prompts live in `codex-review.mjs`; tune them there. Allowlist that one command in settings and all three passes run on a single approval.
+Read-only is **structural**: the script calls the Codex companion's `task` with no `--write`, so the plugin forces a read-only sandbox — Codex cannot edit or even prompt to edit. That stops edits, not execution, so the "don't run the suite" rule lives in the script's prompt. The lens prompts live in `codex-review.mjs`; tune them there. Allowlist that one command in settings and all three passes run on a single approval.
 
 Codex doesn't get the other two lenses. Whether the change fits the codebase's conventions, and whether the tests would fail on a broken implementation, both lean on knowing the project — which is where an outside model pays least.
 

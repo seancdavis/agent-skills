@@ -10,7 +10,7 @@
 // plugin forces sandbox=read-only.
 //
 // Usage:
-//   node codex-review.mjs --lens <claims|correctness|security> --base <ref> [--claims-file <path>] [--context <text>] [--effort <level>] [--model <name>]
+//   node codex-review.mjs --lens <claims|correctness|security> --base <ref> [--claims-file <path>] [--ci-file <path>] [--context <text>] [--effort <level>] [--model <name>]
 //   node codex-review.mjs --prompt "<custom read-only review prompt>" [...]
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -92,12 +92,27 @@ function buildLensPrompt(args) {
     }
     claimsBlock = `\n<pr_description>\n${readFileSync(args['claims-file'], 'utf8')}\n</pr_description>`;
   }
+  // Read-only stops edits, not execution — without this, Codex re-runs the
+  // suite CI already ran, and that's most of a pass's wall-clock.
+  let ciBlock = '';
+  let ciLine =
+    'No CI results were provided. If a finding depends on whether something passes, mark it uncertain rather than running it.';
+  if (typeof args['ci-file'] === 'string') {
+    if (!existsSync(args['ci-file'])) {
+      console.error(`CI file not found at "${args['ci-file']}".`);
+      process.exit(2);
+    }
+    ciBlock = `\n<ci_results>\n${readFileSync(args['ci-file'], 'utf8')}\n</ci_results>`;
+    ciLine =
+      'CI results are in <ci_results> below — treat them as the evidence for anything running the code would tell you.';
+  }
   const contextLine = args.context ? `\nReview context: ${args.context}.` : '';
   return `<task>
-Review ONLY the changes on this branch versus ${args.base} (run: git diff ${args.base}...HEAD) for ${lens.toUpperCase()}. Read-only: do not modify any files.${contextLine}
+Review ONLY the changes on this branch versus ${args.base} (run: git diff ${args.base}...HEAD) for ${lens.toUpperCase()}. Read-only: do not modify any files.
+Do not run tests, builds, installs, or project scripts — CI already ran them. Reading commands (git, grep, opening files) are fine. ${ciLine}${contextLine}
 ${framing}
 The author of this PR may be an agent. Its description is a claim, not a summary — check every claim against code you actually opened.
-</task>${claimsBlock}
+</task>${claimsBlock}${ciBlock}
 <structured_output_contract>
 Findings ordered by severity. Each on its own, with these fields and no others: title; file:line; what is wrong (one sentence); evidence (what you opened and what it showed); severity (blocking|follow-up|consider|nit); confidence 0-1. If there are none, say so plainly. No preamble, no fix suggestions.
 </structured_output_contract>
