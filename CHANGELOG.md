@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.7.2] - 2026-10-03
+
+### Fixed
+
+- `review-pr` no longer re-runs the test suite in every review pass. It pulls
+  the PR's CI results once, hands them to each pass as a file, and tells both
+  the Codex and Claude reviewers not to run tests, builds, installs, or scripts.
+
 ## [0.7.1] - 2026-09-16
 
 ### Changed
