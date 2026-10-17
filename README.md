@@ -125,10 +125,10 @@ Skills are invoked automatically by Claude based on context, or manually:
 
 ### Code Review
 
-| Skill       | Description                                                                            |
-| ----------- | -------------------------------------------------------------------------------------- |
-| `open-pr`   | `/open-pr` — push the branch and open a PR with a concise, human-first body            |
-| `review-pr` | `/review-pr` — adversarial review of someone else's PR; drafts a pending GitHub review |
+| Skill       | Description                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| `open-pr`   | `/open-pr` — push the branch and open a PR with a concise, human-first body                                         |
+| `review-pr` | `/review-pr` — adversarial PR review; drafts a pending GitHub review, or prints findings in-session for your own PR |
 
 ### Utilities
 
