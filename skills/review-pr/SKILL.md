@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Adversarial review of someone else's pull request, run as a companion for a human reviewer who does not know the code. Invoke with `/review-pr` (optionally a PR number, URL, or branch) when picking up a PR you didn't write and need to review well and fast. Runs in three gated steps — orient (what the PR claims, what it actually touches, delegated to a cheap subagent and retold plainly), review (two independent sides at once: Claude subagents one lens each, and read-only Codex passes on three of the same lenses, with this session judging the delta between them), then draft a pending GitHub review with inline comments you edit and submit yourself. Treats the PR author — increasingly an agent — as the adversary: every claim gets checked against code you actually opened. Checks the branch out and reads it locally rather than pulling files over the network, and treats CI output as the evidence instead of re-running the suite. Leaves the review PENDING, never submits, never pushes, never merges. NOT for reviewing your own agent-built work — `autopilot` already QAs that.
+description: Adversarial review of someone else's pull request, run as a companion for a human reviewer who does not know the code. Invoke with `/review-pr` (optionally a PR number, URL, or branch) when picking up a PR you didn't write and need to review well and fast. Runs in three gated steps — orient (what the PR claims, what it actually touches, delegated to a cheap subagent and retold plainly), review (two independent sides at once: Claude subagents one lens each, and read-only Codex passes on three of the same lenses, with this session judging the delta between them), then draft a pending GitHub review with inline comments you edit and submit yourself. Treats the PR author — increasingly an agent — as the adversary: every claim gets checked against code you actually opened. Checks the branch out and reads it locally rather than pulling files over the network, and treats CI output as the evidence instead of re-running the suite. Leaves the review PENDING, never submits, never pushes, never merges. On your own PR (you're the author, or `/review-pr mine`) it runs the same review without the orientation explainer and prints the findings in-session instead of drafting anything on GitHub.
 ---
 
 # Review PR — read it for me, then let me argue with it
@@ -26,6 +26,14 @@ Each step ends by **stopping**. Do not roll from one into the next — the human
 1. **Orient** — what is this, what problem, what approach. Stop.
 2. **Review** — skeptical, verified, lens by lens. Report findings concisely. Stop.
 3. **Draft** — compose a pending GitHub review from the findings that survived triage. Stop.
+
+## Self mode — reviewing your own PR
+
+Runs when the PR's author is the human you're working with (compare `author` from step 1's `gh pr view` against `gh api user -q .login`), or when they pass `mine`. The review itself doesn't change — an agent-built PR earns the same skepticism whoever commissioned it. What goes is everything built for a reviewer who doesn't know the code and a comment that goes out under their name:
+
+- **Step 1** — do the setup (body file, CI file; skip the checkout if you're already on the branch) but not the orientation subagent or report. If checks are still running, say so in one line. Don't stop; go straight into step 2.
+- **Step 2** — unchanged, except every finding carries its `file:line`, and when the human expands one, say how you'd fix it. The never-prescribe rule is for comments on someone else's code.
+- **Step 3** — skipped. Nothing goes to GitHub: no pending review, no comments, no voice loading. The step 2 report is the deliverable; stop there.
 
 ## Step 1 — Orient
 
@@ -257,5 +265,5 @@ Then hand back the Files-tab URL (`<pr-url>/files`), a one-line count of what's 
 - `open-pr` — the other side: opening a PR for someone else to review.
 - `human-readable` — the voice for the GitHub-facing comments.
 - `dumb-it-down` — the plainness bar for the orientation report.
-- `autopilot` — QAs agent-built work before the PR exists; that's why this skill isn't for your own branches. Its `codex-audit.mjs` is the sibling of this skill's `codex-review.mjs`, with lenses for auditing work you just built rather than reviewing someone else's.
+- `autopilot` — QAs agent-built work before the PR exists; self mode here is the second look once your PR is open. Its `codex-audit.mjs` is the sibling of this skill's `codex-review.mjs`, with lenses for auditing work you just built rather than reviewing someone else's.
 - `research` — the fan-out pattern the lens passes borrow.
