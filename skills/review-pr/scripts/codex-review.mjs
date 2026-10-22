@@ -114,7 +114,7 @@ ${framing}
 The author of this PR may be an agent. Its description is a claim, not a summary — check every claim against code you actually opened.
 </task>${claimsBlock}${ciBlock}
 <structured_output_contract>
-Findings ordered by severity. Each on its own, with these fields and no others: title; file:line; what is wrong (one sentence); evidence (what you opened and what it showed); severity (blocking|follow-up|consider|nit); confidence 0-1. If there are none, say so plainly. No preamble, no fix suggestions.
+Findings ordered by importance. Each on its own, with these fields and no others: title; file:line; what is wrong (one sentence); evidence (what you opened and what it showed); label (fix = must change before merge | consider = should change | nit = could change); confidence 0-1. If there are none, say so plainly. No preamble, no fix suggestions.
 </structured_output_contract>
 <grounding_rules>
 Only claims the visible code supports. Label inferences as inferences. No speculation stated as fact.
