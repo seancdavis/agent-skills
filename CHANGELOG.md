@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.8.0] - 2026-10-22
+
+### Added
+
+- `review-pr` works on your own PRs. When you're the author, or you run
+  `/review-pr mine`, it skips the plain-language explainer, runs the same
+  review, and prints the findings in the session instead of drafting anything on
+  GitHub.
+
+### Changed
+
+- `review-pr` labels every comment `[fix]`, `[consider]`, or `[nit]` — must,
+  should, could. `[blocking]` is now `[fix]`, and `[follow-up]` is gone.
+- `review-pr` hands you a numbered list of every finding, most important first,
+  and you pick which ones get posted. Considers and nits no longer collapse into
+  a count.
+
 ## [0.7.2] - 2026-10-03
 
 ### Fixed
