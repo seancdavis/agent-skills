@@ -75,7 +75,7 @@ An unverified finding is worse than no finding — it costs the human trust and 
 - **Read code locally, always.** A diff shows the change; it doesn't show the function it lives in, the callers, or the thing it broke three files over. Grep the checked-out tree, open whole files, follow every symbol you intend to comment on. Pulling file contents through the network one call at a time is slower and costs more for a worse view — the checkout in step 1 exists so you don't do that.
 - **CI is the evidence — don't reproduce it.** If checks ran, use them. The CI file from step 1 carries the results and the failure logs; review _those_, rather than reasoning about what might be wrong or re-running the suite. When a pass needs more — a full log, an artifact, a check's details — the orchestrator fetches it and appends it to the CI file. Reading a log you already have beats spending minutes regenerating it.
 - **The passes don't read this file.** Subagents and Codex only see what they're handed, so every pass's prompt carries the CI file and the rule: read and search freely, never run tests, builds, installs, or project scripts. Codex gets it through `--ci-file`; each subagent prompt states it outright.
-- **No CI, or no tests wired to it, is itself a finding.** A test suite that never runs on PRs is a Blocking-or-Follow-up problem depending on the repo's norms.
+- **No CI, or no tests wired to it, is itself a finding.** A test suite that never runs on PRs is a `[fix]` or a `[consider]`, depending on the repo's norms.
 - **Reading is free; executing is not.** Reading and searching the local tree needs no permission. _Running_ anything — the test suite, a build, a script, the app — needs the human's say-so first: name the command and what it would tell you that CI can't, then wait. (This is deliberately open; when a good local-run case shows up, bring it back and we'll write the rule into this file.)
 - **Never write anything.** No pushing, no committing, no editing the branch, no comments or reactions on GitHub. Reading and reporting only, until step 3's pending review.
 
@@ -103,7 +103,7 @@ Read-only is **structural**: the script calls the Codex companion's `task` with 
 
 Codex doesn't get the other two lenses. Whether the change fits the codebase's conventions, and whether the tests would fail on a broken implementation, both lean on knowing the project — which is where an outside model pays least.
 
-**Both sides return the same shape**, or the comparison can't happen: title, `file:line`, what's wrong in one sentence, evidence (what was opened and what it showed), severity, confidence 0–1.
+**Both sides return the same shape**, or the comparison can't happen: title, `file:line`, what's wrong in one sentence, evidence (what was opened and what it showed), label (`fix`, `consider`, `nit`), confidence 0–1.
 
 ### Judge the delta
 
@@ -125,25 +125,26 @@ The judged list, not either side's output, is what gets reported.
 
 ### Report it
 
-Severity vocabulary — the same four levels here and in the GitHub comments, though they're written differently in each. Bold in the terminal; bracketed and lowercase on GitHub (see the comment contract in step 3).
+Three labels, written the same way here and on GitHub. They tell the author how much a comment asks of them — must, should, could:
 
-| Terminal      | GitHub        | Means                                               |
-| ------------- | ------------- | --------------------------------------------------- |
-| **Blocking**  | `[blocking]`  | Must be fixed before merge.                         |
-| **Follow-up** | `[follow-up]` | Real, but shouldn't hold the merge. Needs an issue. |
-| **Consider**  | `[consider]`  | A judgment call worth the author's attention.       |
-| **Nit**       | `[nit]`       | Small. Take it or leave it.                         |
+| Label        | Means                                           |
+| ------------ | ----------------------------------------------- |
+| `[fix]`      | Must change before merge.                       |
+| `[consider]` | Should change — a judgment call for the author. |
+| `[nit]`      | Could change. Small; take it or leave it.       |
+
+The label is for the author. Whether a comment gets posted at all is a separate call, and it's the human's: they bring context the passes don't have — what this author needs to hear, what the team already settled, whether nits are worth anyone's time on this PR. So the report doesn't draw that line. It hands over everything and lets the human draw it.
 
 Format for the terminal — this follows the Concise output style, and it is not optional:
 
-- **One line per finding.** What's wrong and what it costs, in plain words. No mechanism, no code, no fix.
-- **Blocking and Follow-up listed in full.** Consider and Nit collapse to a count ("4 nits") unless asked.
 - **Lead with the verdict** — approve, or changes needed, and the one reason why.
-- **Then stop and offer to expand.** Depth is opt-in. The human picks what to dig into and what to drop.
+- **Then a numbered list of every finding that survived judging**, most important first: fixes, then considers, then nits, ordered by weight within each. Numbering runs straight through so the human can pick by number.
+- **Each item is the comment's first line as it would be posted**, then where it lands — `3. [consider] The retry loop never gives up on an expired token. (src/lib/session.ts:42)`. One line, plain words. No mechanism, no code, no fix.
+- **Then stop.** The human picks the numbers to post and can ask to expand any of them first.
 
 ## Step 3 — Draft the review
 
-Compose from the findings that survived triage. Nothing the human waved off goes in.
+Compose from the numbers the human picked. Nothing else goes in — not a dropped nit, and not a dropped comment reworded into the body.
 
 ### Load the voice first — before writing a word
 
@@ -199,12 +200,12 @@ Everything there is either process narration, the verification trail, a recap, o
 ### The comment contract
 
 ```markdown
-[blocking] {one sentence: what is wrong}
+[fix] {one sentence: what is wrong}
 
 {Optional second paragraph: the consequence, or the context needed to act. Only when the reader genuinely can't act without it.}
 ```
 
-The label is `[blocking]`, `[follow-up]`, `[consider]` or `[nit]` — square brackets, lowercase, no bold, no em dash after it. The sentence runs straight on as if the tag were a word in it. Someone leaving review comments all day types a tag and keeps going; they don't format a header.
+The label is `[fix]`, `[consider]` or `[nit]` — square brackets, lowercase, no bold, no em dash after it. The sentence runs straight on as if the tag were a word in it. Someone leaving review comments all day types a tag and keeps going; they don't format a header.
 
 And **no bold anywhere in the comment** — not on the label, not on a phrase you want to stress. Bold is the tell that something was rendered rather than typed. Backticks on identifiers are fine; those are how people write code in prose.
 
@@ -229,9 +230,7 @@ gh api repos/{owner}/{repo}/pulls/{n}/reviews --input review.json
 ```json
 {
   "body": "{only what has no line to attach to — often one sentence}",
-  "comments": [
-    { "path": "src/lib/session.ts", "line": 42, "side": "RIGHT", "body": "[blocking] ..." }
-  ]
+  "comments": [{ "path": "src/lib/session.ts", "line": 42, "side": "RIGHT", "body": "[fix] ..." }]
 }
 ```
 
