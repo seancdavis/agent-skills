@@ -168,4 +168,3 @@ Then say the line out loud — "I have what I need; you can walk away. Starting 
 - `autopilot` — the unattended build+audit run this hands off to.
 - `autopilot-iterate` — picks the run back up after Sean reviews the PR; his review comments become the next control signal.
 - `grill-me` — deeper, doc-producing alignment when the direction (not just the execution) is in question. Preflight borrows its "could execute without me" bar.
-- `paper-trail` — session log; useful if the preflight conversation itself produced decisions worth recording.

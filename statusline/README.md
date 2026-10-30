@@ -21,7 +21,7 @@ From a checkout of this repo:
 Or standalone, without cloning:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/seancdavis/claude-skills/main/statusline/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/seancdavis/agent-skills/main/statusline/install.sh | bash
 ```
 
 The installer is idempotent (safe to re-run) and will:
