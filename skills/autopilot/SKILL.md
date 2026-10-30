@@ -124,4 +124,4 @@ Either way the read-only auditor guarantee holds: `task` without `--write` can't
 
 - `preflight` — the interactive setup and spec that this consumes.
 - `autopilot-iterate` — the follow-up loop after Sean reviews the PR; his review comments become the next control signal.
-- `grill-me` / `paper-trail` — heavier alignment and session logging, upstream of preflight.
+- `grill-me` — heavier alignment with a session log, upstream of preflight.
