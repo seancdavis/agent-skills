@@ -23,7 +23,7 @@ What you're trying to nail down:
 - **Constraints** — anything fixed (existing schema, deploy target, third-party SLA, budget for tokens, etc.)?
 - **Decisions already made** — what's locked in vs. genuinely open? Skip re-litigating locked items.
 - **Open decisions** — surface every "I don't know yet": make the call now, or record it as still open.
-- **Dependencies and unknowns** — what external things does Sean own? (Keys, accounts, DNS, hardware.) What does *neither* of you know yet?
+- **Dependencies and unknowns** — what external things does Sean own? (Keys, accounts, DNS, hardware.) What does _neither_ of you know yet?
 - **Edge cases** — what happens when the input is empty? When the third-party times out? When two users do this at once?
 - **Success signal** — how will Sean know it worked? What does verification look like?
 

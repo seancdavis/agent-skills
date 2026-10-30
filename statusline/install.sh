@@ -24,7 +24,7 @@ CLAUDE_DIR="$HOME/.claude"
 SETTINGS="$CLAUDE_DIR/settings.json"
 DEST_SCRIPT="$CLAUDE_DIR/statusline.sh"
 # Raw location used only when running standalone (script not found locally).
-RAW_BASE="https://raw.githubusercontent.com/seancdavis/claude-skills/main/statusline"
+RAW_BASE="https://raw.githubusercontent.com/seancdavis/agent-skills/main/statusline"
 
 # ── Pretty output ──────────────────────────────────────────────────────────
 bold=$(tput bold 2>/dev/null || true)

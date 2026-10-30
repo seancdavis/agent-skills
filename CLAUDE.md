@@ -1,6 +1,6 @@
-# Claude Skills Plugin
+# Agent Skills Plugin
 
-A Claude Code plugin containing web development skills for Astro and Vite+React projects deployed to Netlify.
+A Claude Code plugin of skills for how work gets done with Claude: alignment interviews, unattended build-and-audit runs, opening and reviewing PRs, broad research, and writing in your own voice. Netlify platform guidance lives in Netlify's official skills, not here.
 
 ## Installation
 
@@ -34,7 +34,7 @@ For a specific project, install with "project" or "local" scope:
 Run Claude Code with the plugin directory:
 
 ```bash
-claude --plugin-dir /path/to/claude-skills
+claude --plugin-dir /path/to/agent-skills
 ```
 
 ## Usage
@@ -42,69 +42,25 @@ claude --plugin-dir /path/to/claude-skills
 Once installed, skills are available with the `seancdavis-skills:` namespace:
 
 ```
-/seancdavis-skills:new-project
-/seancdavis-skills:astro-best-practices
-/seancdavis-skills:auth-design
+/seancdavis-skills:preflight
+/seancdavis-skills:review-pr
+/seancdavis-skills:grill-me
 ```
 
 Claude will also automatically invoke skills based on context.
 
 ## Available Skills
 
-### Orchestration
+### Alignment & Unattended Runs
 
-| Skill                      | Description                                                              |
-| -------------------------- | ------------------------------------------------------------------------ |
-| `claude-md-template`       | Template for generating CLAUDE.md in new projects                        |
-| `new-project`              | Scaffolds new Astro or Vite+React projects                               |
-| `onboard-existing-project` | Integrates skills into existing projects, audits CLAUDE.md for conflicts |
-
-### Frameworks
-
-| Skill                  | Description                                              |
-| ---------------------- | -------------------------------------------------------- |
-| `astro-best-practices` | Astro patterns: Netlify adapter, React islands, SSR      |
-| `vite-best-practices`  | Vite+React patterns: React Router, progressive rendering |
-
-### Architecture
-
-| Skill              | Description                               |
-| ------------------ | ----------------------------------------- |
-| `routing-design`   | Rails-style CRUD routes, URL conventions  |
-| `component-design` | Component architecture, skeleton patterns |
-
-### Auth & UX
-
-| Skill         | Description                                                 |
-| ------------- | ----------------------------------------------------------- |
-| `auth-design` | Netlify Identity with Google OAuth, approved users safelist |
-| `feedback`    | Toast notifications, query param messages                   |
-| `forms`       | HTTP forms (Astro) vs JSON forms (React)                    |
-
-### Data Infrastructure
-
-| Skill               | Description                                      |
-| ------------------- | ------------------------------------------------ |
-| `data-storage`      | Netlify DB + Drizzle ORM, migrations             |
-| `file-storage`      | Netlify Blobs for non-image files                |
-| `netlify-functions` | Modern function syntax (default exports, Config) |
-| `netlify-images`    | Image upload, storage, CDN optimization          |
-
-### Operations
-
-| Skill                    | Description                         |
-| ------------------------ | ----------------------------------- |
-| `logging-and-monitoring` | Three-level logging, scoped loggers |
-| `environment-variables`  | Netlify CLI management              |
-
-### Project Documentation
-
-| Skill                  | Description                                          |
-| ---------------------- | ---------------------------------------------------- |
-| `grill-me`             | Slash command for pre-execution alignment interviews |
-| `paper-trail`          | Per-session log of grill outcomes (`docs/sessions/`) |
-| `decision-log`         | Architecture Decision Records (`docs/decisions/`)    |
-| `operating-principles` | Living current-state doc (`docs/principles.md`)      |
+| Skill               | Description                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `grill-me`          | `/grill-me` — pre-execution alignment interview; ends with a log in `docs/sessions/`    |
+| `preflight`         | `/preflight` — settle a piece of work into a spec, so it can run unattended             |
+| `autopilot`         | The unattended run: builds from the spec, audits with read-only Codex, opens the PR     |
+| `autopilot-iterate` | `/autopilot-iterate` — picks an autopilot run back up from your PR review comments      |
+| `research`          | `/research` — broad investigation, with the reading delegated to cheap models           |
+| `roster`            | `/roster` — which model each subagent ran on, with generated-token and tool-call volume |
 
 ### Writing
 
@@ -112,15 +68,6 @@ Claude will also automatically invoke skills based on context.
 | ---------------- | --------------------------------------------------------------------------------- |
 | `human-readable` | Writing mode for public-facing prose: voice profile + anti-AI-tell rules          |
 | `update-voice`   | `/update-voice` — build or refresh the personal voice profile from actual writing |
-
-### Supplementary
-
-| Skill          | Description                               |
-| -------------- | ----------------------------------------- |
-| `ai-workflows` | Netlify AI Gateway, Anthropic/OpenAI SDKs |
-| `email`        | Transactional email with Resend           |
-| `seo`          | Meta tags, Open Graph, structured data    |
-| `ui-design`    | Tailwind CSS v4, accessibility baseline   |
 
 ### Code Review
 
@@ -133,7 +80,7 @@ Claude will also automatically invoke skills based on context.
 
 | Skill          | Description                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `clip`         | `/clip` — copy conversation output to the system clipboard as raw Markdown (general-purpose, not web-dev-specific)       |
+| `clip`         | `/clip` — copy conversation output to the system clipboard as raw Markdown                                               |
 | `dumb-it-down` | `/dumb-it-down` — redo the last answer in plain, literal terms, assuming no memory of how the system works               |
 | `release`      | `/release` — bump the plugin version across both manifests, update `CHANGELOG.md`, commit, and tag (user-invocable only) |
 

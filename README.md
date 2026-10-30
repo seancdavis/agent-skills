@@ -1,31 +1,13 @@
-# Claude Skills for Web Development
+# Agent Skills
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with opinionated skills for building Astro and Vite+React projects deployed to Netlify.
-
-## What's Included
-
-36 skills covering the full web development lifecycle:
-
-| Category                  | Skills                                                                     |
-| ------------------------- | -------------------------------------------------------------------------- |
-| **Project Setup**         | New project scaffolding, CLAUDE.md generation, existing-project onboarding |
-| **Frameworks**            | Astro SSR patterns, Vite+React with React Router                           |
-| **Architecture**          | Rails-style routing, component design, skeleton patterns                   |
-| **Auth**                  | Netlify Identity with Google OAuth, approved users safelist                |
-| **Data**                  | Netlify DB + Drizzle ORM, Netlify Blobs, image CDN                         |
-| **UX**                    | Forms, toast notifications, feedback patterns                              |
-| **Operations**            | Logging, environment variables                                             |
-| **Project Documentation** | Grill-me interviews, session logs, ADRs, living principles doc             |
-| **Writing**               | Personal voice profiles, human-readable public prose                       |
-| **Extras**                | AI workflows, transactional email, SEO                                     |
-| **Utilities**             | Copy output to the clipboard, re-explain an answer in plain terms          |
+A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin with skills for how work gets done with Claude: alignment interviews, unattended build-and-audit runs, opening and reviewing PRs, broad research, and writing in your own voice.
 
 ## Installation
 
 ### Add the Marketplace
 
 ```bash
-/plugin marketplace add seancdavis/claude-skills
+/plugin marketplace add seancdavis/agent-skills
 ```
 
 ### Install the Plugin
@@ -45,67 +27,23 @@ Choose your preferred scope:
 Skills are invoked automatically by Claude based on context, or manually:
 
 ```
-/seancdavis-skills:new-project
-/seancdavis-skills:auth-design
-/seancdavis-skills:data-storage
+/seancdavis-skills:preflight
+/seancdavis-skills:review-pr
+/seancdavis-skills:grill-me
 ```
 
 ## Available Skills
 
-### Orchestration
+### Alignment & Unattended Runs
 
-| Skill                      | Description                                                               |
-| -------------------------- | ------------------------------------------------------------------------- |
-| `new-project`              | Scaffolds new Astro or Vite+React projects with Netlify deployment        |
-| `onboard-existing-project` | Integrates skills into existing codebases; audits CLAUDE.md for conflicts |
-| `claude-md-template`       | Template for generating CLAUDE.md in new projects                         |
-
-### Frameworks
-
-| Skill                  | Description                                              |
-| ---------------------- | -------------------------------------------------------- |
-| `astro-best-practices` | Astro patterns: Netlify adapter, React islands, SSR      |
-| `vite-best-practices`  | Vite+React patterns: React Router, progressive rendering |
-
-### Architecture
-
-| Skill              | Description                               |
-| ------------------ | ----------------------------------------- |
-| `routing-design`   | Rails-style CRUD routes, URL conventions  |
-| `component-design` | Component architecture, skeleton patterns |
-
-### Auth & UX
-
-| Skill         | Description                                                 |
-| ------------- | ----------------------------------------------------------- |
-| `auth-design` | Netlify Identity with Google OAuth, approved users safelist |
-| `feedback`    | Toast notifications, query param messages                   |
-| `forms`       | HTTP forms (Astro) vs JSON forms (React)                    |
-
-### Data Infrastructure
-
-| Skill               | Description                                      |
-| ------------------- | ------------------------------------------------ |
-| `data-storage`      | Netlify DB + Drizzle ORM, migrations             |
-| `file-storage`      | Netlify Blobs for non-image files                |
-| `netlify-functions` | Modern function syntax (default exports, Config) |
-| `netlify-images`    | Image upload, storage, CDN optimization          |
-
-### Operations
-
-| Skill                    | Description                         |
-| ------------------------ | ----------------------------------- |
-| `logging-and-monitoring` | Three-level logging, scoped loggers |
-| `environment-variables`  | Netlify CLI management              |
-
-### Project Documentation
-
-| Skill                  | Description                                                             |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `grill-me`             | `/grill-me` slash command — free-form pre-execution alignment interview |
-| `paper-trail`          | Per-session log format, stored in `docs/sessions/`                      |
-| `decision-log`         | Architecture Decision Records (ADRs), stored in `docs/decisions/`       |
-| `operating-principles` | Living current-state doc at `docs/principles.md`                        |
+| Skill               | Description                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `grill-me`          | `/grill-me` — pre-execution alignment interview; ends with a log in `docs/sessions/`    |
+| `preflight`         | `/preflight` — settle a piece of work into a spec, so it can run unattended             |
+| `autopilot`         | The unattended run: builds from the spec, audits with read-only Codex, opens the PR     |
+| `autopilot-iterate` | `/autopilot-iterate` — picks an autopilot run back up from your PR review comments      |
+| `research`          | `/research` — broad investigation, with the reading delegated to cheap models           |
+| `roster`            | `/roster` — which model each subagent ran on, with generated-token and tool-call volume |
 
 ### Writing
 
@@ -113,15 +51,6 @@ Skills are invoked automatically by Claude based on context, or manually:
 | ---------------- | --------------------------------------------------------------------------------------------------- |
 | `human-readable` | Writing mode for public-facing prose — applies a personal voice profile plus anti-AI-tell rules     |
 | `update-voice`   | `/update-voice` slash command — build or refresh the voice profile from the author's actual writing |
-
-### Supplementary
-
-| Skill          | Description                               |
-| -------------- | ----------------------------------------- |
-| `ai-workflows` | Netlify AI Gateway, Anthropic/OpenAI SDKs |
-| `email`        | Transactional email with Resend           |
-| `seo`          | Meta tags, Open Graph, structured data    |
-| `ui-design`    | Tailwind CSS v4, accessibility baseline   |
 
 ### Code Review
 
@@ -157,22 +86,12 @@ This repo also ships a custom Claude Code status line (repo · branch · ticket 
 
 The installer handles Homebrew, `jq`, and a Nerd Font, then wires the script into `~/.claude/settings.json`. See [`statusline/README.md`](statusline/README.md) for details and customization.
 
-## Tech Stack
-
-These skills are designed for projects using:
-
-- **Frameworks:** [Astro](https://astro.build) or [Vite](https://vitejs.dev) + [React](https://react.dev)
-- **Deployment:** [Netlify](https://netlify.com)
-- **Database:** [Netlify DB](https://docs.netlify.com/database/overview/) (Neon Postgres) + [Drizzle ORM](https://orm.drizzle.team)
-- **Auth:** [Netlify Identity](https://docs.netlify.com/manage/security/identity/) with Google OAuth
-- **Styling:** [Tailwind CSS v4](https://tailwindcss.com)
-
 ## Development
 
 To test locally:
 
 ```bash
-claude --plugin-dir /path/to/claude-skills
+claude --plugin-dir /path/to/agent-skills
 ```
 
 ### Project Structure

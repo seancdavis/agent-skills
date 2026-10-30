@@ -1,11 +1,11 @@
 {
   "name": "seancdavis-skills",
-  "description": "Web development skills for Astro and Vite+React projects deployed to Netlify. Covers project scaffolding, authentication, data storage, forms, routing, and more.",
+  "description": "Skills for how work gets done with Claude Code: alignment interviews, unattended build-and-audit runs, opening and reviewing PRs, broad research, and writing in your own voice.",
   "version": "0.8.0",
   "author": {
     "name": "Sean C Davis"
   },
   "repository": "https://github.com/seancdavis/agent-skills",
   "license": "MIT",
-  "keywords": ["netlify", "astro", "vite", "react", "drizzle", "neon-auth", "web-development"]
+  "keywords": ["workflow", "autopilot", "code-review", "pull-requests", "writing"]
 }
