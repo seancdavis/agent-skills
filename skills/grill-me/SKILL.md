@@ -1,7 +1,6 @@
 ---
 name: grill-me
-description: Pre-execution alignment session. Sean types `/grill-me` when he wants Claude to interview him until the upcoming work is understood well enough that Claude could execute it without further intervention (aside from external connections and keys Sean has to provide). Free-form conversation, not a canned questionnaire. At session end, writes a one-page log of the outcome to `docs/sessions/`.
-disable-model-invocation: true
+description: Pre-execution alignment session. Interview Sean until the upcoming work is understood well enough that Claude could execute it without further intervention (aside from external connections and keys Sean has to provide). Invoke when he types `/grill-me` or asks for it in words — "grill me," "interview me," "ask me questions until you get it." Never offer it or start it unprompted. NOT `preflight`, which packages already-settled work for an unattended run.
 ---
 
 # Grill Me
@@ -71,7 +70,7 @@ Tell Sean what you're about to log before writing it, so he can correct course b
 
 - It is **not** a structured questionnaire. No fixed question list.
 - It is **not** for trivial tasks. If Sean asks for "rename this variable," he didn't need to grill — just do it.
-- It is **not** triggered by you. Wait for `/grill-me`. Don't suggest "want me to grill you about this?" — Sean reaches for it when he wants it.
+- It is **not** yours to start. Run it when Sean types `/grill-me` or asks in words ("grill me," "interview me"). Don't suggest "want me to grill you about this?" — Sean reaches for it when he wants it.
 
 ## Related skills
 
