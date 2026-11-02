@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.9.0] - 2026-11-02
+
+### Added
+
+- `pr-watch` stays with your open PRs until they merge or close. It fixes
+  failing CI and CodeRabbit comments before you look, asks you about everything
+  else in a dialog, and tells you when a PR is ready for you to merge.
+
+### Changed
+
+- `autopilot` always opens a draft PR and hands it to `pr-watch` instead of
+  stopping.
+- `autopilot` ends every run with a table of which model each subagent ran on.
+- `grill-me` loads when you ask for it in words, and writes the session log
+  itself.
+- The plugin is down to 14 skills. The 20 web-dev skills are gone, since
+  Netlify's official skills cover the platform, and so are `paper-trail`,
+  `decision-log`, and `operating-principles`.
+
 ## [0.8.0] - 2026-10-22
 
 ### Added
