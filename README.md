@@ -36,14 +36,15 @@ Skills are invoked automatically by Claude based on context, or manually:
 
 ### Alignment & Unattended Runs
 
-| Skill               | Description                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------- |
-| `grill-me`          | `/grill-me` — pre-execution alignment interview; ends with a log in `docs/sessions/`    |
-| `preflight`         | `/preflight` — settle a piece of work into a spec, so it can run unattended             |
-| `autopilot`         | The unattended run: builds from the spec, audits with read-only Codex, opens the PR     |
-| `autopilot-iterate` | `/autopilot-iterate` — picks an autopilot run back up from your PR review comments      |
-| `research`          | `/research` — broad investigation, with the reading delegated to cheap models           |
-| `roster`            | `/roster` — which model each subagent ran on, with generated-token and tool-call volume |
+| Skill               | Description                                                                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `grill-me`          | `/grill-me` — pre-execution alignment interview; ends with a log in `docs/sessions/`                             |
+| `preflight`         | `/preflight` — settle a piece of work into a spec, so it can run unattended                                      |
+| `autopilot`         | The unattended run: builds from the spec, audits with read-only Codex, opens a draft PR                          |
+| `autopilot-iterate` | `/autopilot-iterate` — picks an autopilot run back up from your PR review comments                               |
+| `pr-watch`          | `/pr-watch` — stays with open PRs until they merge: fixes CI and CodeRabbit, then asks you about everything else |
+| `research`          | `/research` — broad investigation, with the reading delegated to cheap models                                    |
+| `roster`            | `/roster` — which model each subagent ran on, with generated-token and tool-call volume                          |
 
 ### Writing
 

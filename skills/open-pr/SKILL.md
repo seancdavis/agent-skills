@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: Push the current feature branch and open a pull request with a concise, human-first body — an opening paragraph anyone can follow (the problem, then what this does about it, in plain words), then what changed and how it was verified, written for a reviewer moving fast (not Claude's verbose default). Never signs the PR: no attribution, no session link, no mention of a model. Invoke with `/open-pr` when branch work is ready for review, or called by `autopilot` as its closing handoff. Links the PR to a backing issue when one is referenced (a GitHub `#N` or a Linear issue) but stays tracker-agnostic and portable — which tracker and how branches are named are project conventions, not baked into the skill. Opens a ready-for-review PR by default; pass `--draft` when the work is knowingly unfinished. Does NOT merge or deploy — that stays with the human.
+description: Push the current feature branch and open a pull request with a concise, human-first body — an opening paragraph anyone can follow (the problem, then what this does about it, in plain words), then what changed and how it was verified, written for a reviewer moving fast (not Claude's verbose default). Never signs the PR: no attribution, no session link, no mention of a model. Invoke with `/open-pr` when branch work is ready for review, or called by `autopilot` as its closing handoff. Links the PR to a backing issue when one is referenced (a GitHub `#N` or a Linear issue) but stays tracker-agnostic and portable — which tracker and how branches are named are project conventions, not baked into the skill. Opens a ready-for-review PR by default; pass `--draft` when the work is knowingly unfinished (`autopilot` always does, for `pr-watch`). Does NOT merge or deploy — that stays with the human.
 ---
 
 # Open PR — the handoff, not the ship
@@ -61,7 +61,7 @@ Set `"attribution": { "pr": "" }` in settings so the footer isn't appended outsi
    - a Linear issue (a `TEAM-123` key or Linear URL, with the Linear tools available) → link it via Linear so the issue tracks the PR;
    - nothing found → open the PR anyway and note "no issue linked." A project that _requires_ an issue says so in its own convention (below) — the skill doesn't force it.
 3. **Push** the branch with upstream tracking.
-4. **Open a ready-for-review PR** against the base branch, body per the convention above. Open a **draft** only when asked (`--draft`) or when the caller has measured the work as incomplete — see below.
+4. **Open a ready-for-review PR** against the base branch, body per the convention above. Open a **draft** only when asked (`--draft`), when the caller has measured the work as incomplete, or when `autopilot` calls — see below.
 5. **Report** the PR URL and whether an issue was linked. Then stop.
 
 ## Portability — keep the niche config out of the skill
@@ -79,6 +79,8 @@ Ready-for-review is the default because opening a PR is already the reversible s
 
 Open a draft only when something is **measurably** unfinished and you can name it: a failing check, a skipped slice, an unmet item from a caller's completeness gate. Say what it is in the PR body. "I'm not sure this is good enough" is not a reason — that judgment is the reviewer's, which is what the PR is for.
 
+`autopilot` is the exception: it always passes `--draft`, because `pr-watch` holds the PR back from reviewers until Sean's gut-check, then marks it ready.
+
 ## Guardrail
 
 Push and open a PR — never `git merge`, never merge the PR, never deploy. Those are the human's calls after review.
@@ -87,5 +89,6 @@ Push and open a PR — never `git merge`, never merge the PR, never deploy. Thos
 
 - `human-readable` — the voice for the opening paragraph.
 - `dumb-it-down` — the plainness bar that paragraph has to clear.
-- `autopilot` — calls this as its closing handoff, passing `--draft` when its completeness gate found unmet items.
+- `autopilot` — calls this as its closing handoff, always passing `--draft`.
+- `pr-watch` — takes the PR after it's open and marks a draft ready once Sean says so.
 - `release` — version bump + tag, a separate step after a PR merges.
