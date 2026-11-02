@@ -283,6 +283,15 @@ test('runLoop times out with a single timeout event and the last prs', async () 
   assert.deepEqual(result, { events: [{ type: 'timeout' }], prs: quiet.prs, allClosed: false });
 });
 
+test('runLoop never sleeps past the deadline when the interval is longer', async () => {
+  const clock = fakeClock();
+  const p = scripted(Array(5).fill(quiet));
+  const result = await runLoop({ poll: p.poll, ...clock, intervalMs: 100, maxWaitMs: 30 });
+  assert.deepEqual(result.events, [{ type: 'timeout' }]);
+  assert.equal(clock.now(), 30);
+  assert.equal(p.calls(), 2);
+});
+
 test('runLoop throws after 5 consecutive failures', async () => {
   const p = scripted(Array(10).fill(new Error('gh down')));
   await assert.rejects(
