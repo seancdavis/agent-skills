@@ -5,7 +5,7 @@ description: Show which model each subagent in the current Claude Code session r
 
 # Roster — who ran on what
 
-Claude Code shows subagents running live but never says which model each is on. Roster closes that gap after the run: it reads the session's subagent transcripts and prints a compact **model-per-agent** table — the feedback you use to tune routing. *Was that whole-project scan really on Opus? Should it have been Haiku, or Codex?*
+Claude Code shows subagents running live but never says which model each is on. Roster closes that gap after the run: it reads the session's subagent transcripts and prints a compact **model-per-agent** table — the feedback you use to tune routing. _Was that whole-project scan really on Opus? Should it have been Haiku, or Codex?_
 
 The point is the summary, not the transcripts. The extractor aggregates the (large) transcript files with a script and surfaces **only the table** — it never reads transcript content into the conversation, so your context window stays clear. That's the whole reason this beats having the skills narrate every delegation inline.
 
@@ -38,4 +38,4 @@ Not useful when nothing was delegated (a run with no subagents has nothing to re
 
 ## Related skills
 
-- `preflight` / `autopilot` / `research` — the skills whose delegations this makes visible.
+- `preflight` / `autopilot` / `research` — the skills whose delegations this makes visible. `autopilot` runs this itself at the end of every run.

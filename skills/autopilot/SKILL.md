@@ -100,7 +100,15 @@ The PR body is the report, kept to `open-pr`'s concise convention (summary + wha
 
 Keep the deeper detail (full audit history, per-round findings) in `docs/autopilot/{YYYY-MM-DD}-{slug}-report.md` and link it from the PR rather than pasting it all in — the PR stays skimmable.
 
-Then stop. Never merge the PR and never deploy — Sean reviews the preview and ships.
+Before you commit that report, run the roster and paste its table in, under a **Who ran on what** heading, so Sean can check the run's model routing without asking:
+
+```sh
+node "${CLAUDE_PLUGIN_ROOT}/skills/roster/scripts/roster.mjs"
+```
+
+Keep the table out of the PR body, because `open-pr` never mentions a model. If the script fails, note that in the report and carry on; it never blocks the PR.
+
+Then stop, ending your closing message with the same table. Never merge the PR and never deploy — Sean reviews the preview and ships.
 
 ## Guardrails, in one place
 
