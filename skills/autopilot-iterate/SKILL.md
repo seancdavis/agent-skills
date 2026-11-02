@@ -23,6 +23,8 @@ Work from the project repo, on the PR's branch (check it out if needed). Gather,
 - **The run report** — `docs/autopilot/…-report.md`, if present. It names what the last run deferred or couldn't self-verify; some of Sean's comments will be about exactly those.
 - **The diff** — `gh pr diff <number>`, so each piece of feedback maps to actual hunks.
 
+When `pr-watch` called this skill, the feedback is only Sean's answer and the comment and review IDs it passed. Leave everything else on the PR for `pr-watch` to bring to him.
+
 If Sean gives feedback in the conversation instead of (or on top of) PR comments, fold it in as if it were a comment — but the PR threads are the durable record, so prefer them when both exist.
 
 ## Step 2 — Triage the feedback into a judged action list

@@ -10,11 +10,6 @@
 // the laptop slept are reported on the first poll. A PR with no saved snapshot
 // gets its first poll as a baseline and reports nothing. The state file holds
 // snapshots and modes only, never comment bodies. It never writes to GitHub.
-//
-// Usage:
-//   node watch-pr.mjs --once <pr>... [--repo owner/name] [--state-file path]
-//   node watch-pr.mjs <pr>... [--interval 180] [--max-wait seconds] [--repo owner/name] [--state-file path]
-//   node watch-pr.mjs --set-mode <pr> <reviewers|no-reviewers> [--repo owner/name] [--state-file path]
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -241,10 +236,9 @@ export async function runLoop({ poll, sleep, now, intervalMs, maxWaitMs }) {
     } catch (err) {
       if (++failures >= MAX_FAILURES) throw err;
     }
-    if (maxWaitMs && now() - start >= maxWaitMs) {
-      return { events: [{ type: 'timeout' }], prs: last, allClosed: false };
-    }
-    await sleep(intervalMs);
+    const remaining = maxWaitMs ? maxWaitMs - (now() - start) : Infinity;
+    if (remaining <= 0) return { events: [{ type: 'timeout' }], prs: last, allClosed: false };
+    await sleep(Math.min(intervalMs, remaining));
   }
 }
 
@@ -271,9 +265,9 @@ function resolveRepo(args) {
   );
 }
 
-function statePathFor(args) {
+function statePathFor(args, repo) {
   if (args['state-file']) return args['state-file'];
-  return join(homedir(), '.claude', 'pr-watch', `${resolveRepo(args).replace('/', '__')}.json`);
+  return join(homedir(), '.claude', 'pr-watch', `${repo.replace('/', '__')}.json`);
 }
 
 function pollOnce({ repo, prs, statePath, selfLogin }) {
@@ -308,9 +302,8 @@ async function main() {
   }
 
   try {
-    const statePath = statePathFor(args);
-
     if (args.setMode) {
+      const statePath = args['state-file'] ?? statePathFor(args, resolveRepo(args));
       const state = loadState(statePath);
       const n = args.prs[0];
       state.prs[n] = { ...state.prs[n], mode: args.mode };
@@ -319,9 +312,13 @@ async function main() {
       return;
     }
 
-    const repo = resolveRepo(args);
-    const selfLogin = gh(['api', 'user', '--jq', '.login']).trim();
-    const poll = async () => pollOnce({ repo, prs: args.prs, statePath, selfLogin });
+    // Resolved inside the poll, once, so a startup failure retries like any other.
+    let repo, selfLogin;
+    const poll = async () => {
+      repo ??= resolveRepo(args);
+      selfLogin ??= gh(['api', 'user', '--jq', '.login']).trim();
+      return pollOnce({ repo, prs: args.prs, statePath: statePathFor(args, repo), selfLogin });
+    };
     const result = args.once
       ? await poll()
       : await runLoop({
