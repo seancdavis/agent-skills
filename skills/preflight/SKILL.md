@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: The front gate for an unattended build-and-audit run. Invoke with `/preflight` (optionally naming the work) when Sean wants to set up a piece of work thoroughly enough that he can walk away while it gets built and audited without him. Interactive alignment: pin intent, scope, a plan sliced into checkable increments, and an executable done-signal; ensure the work is backed by a tracked issue and a branch named for it; optionally hand planning to a cheaper model; write a settled spec to `docs/autopilot/`; then hand off to `autopilot`. This is the "you're here" half of the flow — `autopilot` is the "you're gone" half. NOT for work Sean intends to babysit step by step (just do that directly), and NOT the place for heavy open-ended design alignment (that's `grill-me`).
+description: The front gate for an unattended build-and-audit run. Invoke with `/preflight` (optionally naming the work) when Sean wants to set up a piece of work thoroughly enough that he can walk away while it gets built and audited without him. Interactive alignment: start from a `grill-me` log when one exists; pin intent, scope, a plan sliced into checkable increments — drawn in chat as a map of steps, parallel tracks, decisions, and unknowns that Sean can ask to go deeper on and signs off — and an executable done-signal; ensure the work is backed by a tracked issue and a branch named for it; optionally hand planning to a cheaper model; write a settled spec to `docs/autopilot/`; then hand off to `autopilot`. This is the "you're here" half of the flow — `autopilot` is the "you're gone" half. NOT for work Sean intends to babysit step by step (just do that directly), and NOT the place for heavy open-ended design alignment (that's `grill-me`).
 ---
 
 # Preflight — the front gate
@@ -14,6 +14,12 @@ The orchestrator (this session) never writes the code and never audits it. Prefl
 Drive to the same standard `grill-me` uses: **you could write the PR description right now** — title, summary, test plan — and be confident every line is right. Restated for this flow: _could `autopilot` run this to completion, unattended, without guessing?_ If any answer is "it would have to guess," you're not done. Guessing is cheap when Sean is sitting here to correct it and expensive when he's gone.
 
 Don't stop at "I think I get it." If something Sean said has two readings, surface it now — this is the last cheap moment to.
+
+## Start from what's already decided
+
+Before asking anything, look in `docs/sessions/` for a `grill-me` log about this work — that's where grill-me writes what Sean decided. If one matches, read it and build on it: treat its decisions as settled, don't re-ask them, and record its path in the spec so autopilot can read it too. Ask only about what the log leaves open.
+
+If there's no log and the open questions are about _what_ to build rather than _how_ — the direction is still being argued, not the execution — say so and suggest running `grill-me` first. Preflight packages a settled direction for an unattended run; it's a poor place to find one. If Sean waves it off, carry on.
 
 ## What you're pinning
 
@@ -55,6 +61,48 @@ Why slices instead of one big dispatch: a single context window holding the whol
 
 Sizing guide: a slice is roughly one clean commit — buildable on its own, checkable on its own. If a slice can't state its own check, it isn't a slice yet; split it or sharpen it. Small work may legitimately be a single slice; the structure costs nothing.
 
+## Show the map before sign-off
+
+Once the plan has slices, draw it in chat as a text tree before writing the spec. A numbered list hides how the work fits together; the map shows Sean what happens in what order, what's independent, and where a choice or an open question is still sitting. It's the cheapest moment for him to say "you missed X."
+
+Every slice gets one of four types, shown by a mark before its title:
+
+| Mark   | Type     | Meaning                                                             |
+| ------ | -------- | ------------------------------------------------------------------- |
+| (none) | step     | Done in order, after the slice before it.                           |
+| `∥`    | parallel | Tracks that don't depend on each other, lettered under it (2A, 2B). |
+| `◇`    | decision | A choice that splits the path. List the options under it.           |
+| `?`    | unknown  | Something to find out before the slices after it can be trusted.    |
+
+Each slice shows its check on the line under it, so Sean sees what "done" means for every piece. A rejected option stays on the map marked `✗` with its reason.
+
+```text
+Add CSV export to the reports page
+├─ 1  Add export endpoint
+│     ✓ GET /api/reports/export returns text/csv with a header row
+├─ 2  ∥ UI and docs
+│  ├─ 2A  Add an Export button to the reports page
+│  │      ✓ button links to the endpoint with the current filters
+│  └─ 2B  Document the export in the README
+│         ✓ README has an "Exporting" section
+├─ 3  ◇ Large reports: stream the file, or cap at 10k rows?
+│     → stream (chosen)
+│     ✗ cap at 10k: drops rows without telling anyone
+└─ 4  ? Does the reports query already paginate?
+      (open: read src/db/reports.ts before hand-off)
+```
+
+**Go deeper when Sean asks.** He can say "go deeper on 2A" about any slice. Split that slice into sub-slices numbered under it (2A.1, 2A.2), each with its own check, and redraw. He picks where the detail goes — don't split everything to the same depth up front. A sub-slice still too big for one commit can go deeper again. The parent keeps its own check, which autopilot runs after its sub-slices land.
+
+**Clear every `◇` and `?` before hand-off.** Autopilot can't make Sean's choices or show him what an investigation turned up, so none can be left open in the spec:
+
+- An unknown you can answer by reading the code or docs: answer it now, while Sean's here, and replace it with what you found (a step, or a changed plan).
+- A decision Sean can settle in a sentence: record the choice as a step. The options not chosen go under **Paths not chosen** in the spec with their reasons, so the developer doesn't wander back into one.
+- One that can't be settled in a sentence or two is a direction question. Suggest running `grill-me` on that piece, then come back and redraw.
+- Or descope it, and name what that leaves out.
+
+Redraw after every change, and get Sean's OK on the final map before writing the spec. Autopilot still works slices one at a time in order; `∥` tells Sean what's independent, it doesn't change how the run executes. Work that is a single slice doesn't need a map.
+
 ## Program design and exemplars — for bigger specs
 
 Intent, scope, and plan pin the _architecture_ altitude. The layer that's easiest to skip — and the one that most reduces developer wandering on a big spec — is **program design**: the actual types, method signatures, file layout, and (where it helps) the call graph. Ten extra minutes here shrinks the space the developer can guess in. Include it in the spec whenever the work touches more than a couple of files.
@@ -73,7 +121,7 @@ So build the scope and done-signal on a **repo-wide, unrestricted reference swee
 
 ## Delegating the plan to a cheaper model
 
-If the work isn't planned yet, don't burn the orchestrator's tier on it. Hand planning to a **Sonnet subagent** (`Agent`, model `sonnet`) — or the `Plan` agent — with the intent and scope, get back a step-by-step plan, then bring it to Sean for sign-off. The orchestrator's judgment goes into _reviewing_ the plan, not drafting it. Escalate to a stronger model only if the cheap draft doesn't clear the bar.
+If the work isn't planned yet, don't burn the orchestrator's tier on it. Hand planning to a **Sonnet subagent** (`Agent`, model `sonnet`) — or the `Plan` agent — with the intent and scope, get back a plan as typed slices with checks (the map format above), then bring it to Sean as a map for sign-off. The orchestrator's judgment goes into _reviewing_ the plan, not drafting it. Escalate to a stronger model only if the cheap draft doesn't clear the bar.
 
 This is the first place the routing principle shows up: cheap model does the legwork, the high-taste orchestrator judges the result.
 
@@ -106,6 +154,8 @@ Location: `docs/autopilot/{YYYY-MM-DD}-{short-slug}.md` in the active project (t
 
 {The outcome. One short paragraph.}
 
+Builds on: {docs/sessions/… grill-me log, or "none"}
+
 ## Scope
 
 - In: {…}
@@ -113,10 +163,19 @@ Location: `docs/autopilot/{YYYY-MM-DD}-{short-slug}.md` in the active project (t
 
 ## Plan
 
-{Ordered vertical slices — each with its own check. Small work may be one slice.}
+{The signed-off map as ordered vertical slices — same numbering and marks, each with its own check.
+No `◇` or `?` left open. Small work may be one slice.}
 
 1. **{Slice}** — {what to build}
    - Check: {command or observation that proves it landed}
+2. ∥ **{Group}** — {what the tracks add up to}
+   - Check: {…}
+   - 2A. **{Track}** — {…}
+     - Check: {…}
+
+## Paths not chosen
+
+{Options rejected at a decision, each with the reason — so the developer doesn't drift back into one. Or "none".}
 
 ## Program design
 
@@ -160,7 +219,7 @@ Then say the line out loud — "I have what I need; you can walk away. Starting 
 ## When NOT to use preflight
 
 - **Work Sean will supervise anyway.** If he's staying at the keyboard, skip the ceremony and just do the work.
-- **Heavy, open-ended design questions.** That's `grill-me` — run it first if the direction itself is unsettled, then preflight to package the result for execution.
+- **Heavy, open-ended design questions.** That's `grill-me` — run it first if the direction itself is unsettled, then preflight picks up its log (see "Start from what's already decided").
 - **Trivial changes.** A rename doesn't need a spec or a walk-away line.
 
 ## Related skills
@@ -168,4 +227,4 @@ Then say the line out loud — "I have what I need; you can walk away. Starting 
 - `autopilot` — the unattended build+audit run this hands off to.
 - `pr-watch` — stays with the draft PR autopilot opens until it merges.
 - `autopilot-iterate` — picks the run back up after Sean reviews the PR; his review comments become the next control signal.
-- `grill-me` — deeper, doc-producing alignment when the direction (not just the execution) is in question. Preflight borrows its "could execute without me" bar.
+- `grill-me` — deeper, doc-producing alignment when the direction (not just the execution) is in question. Preflight reads its log from `docs/sessions/`, sends unsettled decisions back to it, and borrows its "could execute without me" bar.
