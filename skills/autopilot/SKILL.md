@@ -35,6 +35,7 @@ The spec's plan arrives as ordered vertical slices, each with its own check — 
 - Dispatch a **fresh developer subagent per slice** with the spec, the branch, and that slice. Fresh contexts are cheaper and more reliable than one long-running window holding the whole scope — a full window degrades, ships the parts it remembers, and declares victory.
 - When the subagent returns, **run the slice's check yourself** (rule 4). Green → clean commit point, advance the queue. Red → back to the _same_ slice with the failure output; don't advance past a red check.
 - Tell each developer to commit at clean points and **not** push or open a PR.
+- A slice split into sub-slices (2A.1, 2A.2) or parallel tracks (`∥` 2A, 2B) is a group: dispatch its innermost slices in order as ordinary slices, then run the group's own check before advancing past it. The spec's "Paths not chosen" goes to every developer, so none drifts into a rejected option.
 - The queue is the ambition-keeper: Phase 1 does not end with unfinished slices. If a slice is blocked on something the spec can't resolve, stop and record it (see preconditions) rather than silently skipping it — a skipped slice is exactly the kind of quiet 60%-run this structure exists to prevent.
 
 A spec small enough to be one slice collapses to the old behavior: one dispatch, one check. You do not edit files yourself — if you're tempted to "just fix this one line," that's the rule-1 violation that collapses your independence.
