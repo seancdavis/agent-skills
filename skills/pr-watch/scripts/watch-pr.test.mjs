@@ -23,17 +23,17 @@ function makeView(overrides = {}) {
     mergeStateStatus: 'CLEAN',
     autoMergeRequest: null,
     statusCheckRollup: [],
-    comments: [],
-    reviews: [],
     headRefOid: 'abc',
     ...overrides,
   };
 }
 
+// `lists` is the REST comment lists by kind; any kind left out is empty.
+const norm = (view, lists = {}) => normalize(view, lists, 'o/r');
 // The stored snapshot for a view, as the previous poll would have saved it.
-const stored = (view, lines = []) => toStored(undefined, normalize(view, lines));
-const diff = (prevView, nextView, prevLines = [], nextLines = []) =>
-  diffSnapshots(stored(prevView, prevLines), normalize(nextView, nextLines), ME);
+const stored = (view, lists) => toStored(undefined, norm(view, lists));
+const diff = (prevView, nextView, prevLists, nextLists) =>
+  diffSnapshots(stored(prevView, prevLists), norm(nextView, nextLists), ME);
 
 const run = (name, status, conclusion = null) => ({
   __typename: 'CheckRun',
@@ -42,23 +42,23 @@ const run = (name, status, conclusion = null) => ({
   conclusion,
 });
 const ctx = (context, state) => ({ __typename: 'StatusContext', context, state });
-const comment = (id, login, assoc = 'NONE') => ({
+// A REST comment or review, as GitHub's API returns it.
+const rest = (id, login, extra = {}) => ({
   id,
-  author: { login },
-  authorAssociation: assoc,
+  node_id: `N_${id}`,
+  user: { login, type: login.endsWith('[bot]') ? 'Bot' : 'User' },
+  author_association: 'NONE',
+  ...extra,
 });
 
 test('no change produces no events', () => {
-  const view = makeView({
-    comments: [comment('c1', 'bob')],
-    statusCheckRollup: [run('a', 'COMPLETED', 'SUCCESS')],
-  });
-  assert.deepEqual(diff(view, view), []);
+  const view = makeView({ statusCheckRollup: [run('a', 'COMPLETED', 'SUCCESS')] });
+  const lists = { issue: [rest(1, 'bob')] };
+  assert.deepEqual(diff(view, view, lists, lists), []);
 });
 
 test('first poll with no saved snapshot is a baseline', () => {
-  const view = makeView({ comments: [comment('c1', 'bob')] });
-  assert.deepEqual(diffSnapshots(undefined, normalize(view, []), ME), []);
+  assert.deepEqual(diffSnapshots(undefined, norm(makeView(), { issue: [rest(1, 'bob')] }), ME), []);
 });
 
 test('pending to failing emits checks with the failed names', () => {
@@ -87,7 +87,7 @@ test('a change to pending emits nothing but is saved', () => {
   const prev = makeView({ statusCheckRollup: [run('a', 'COMPLETED', 'SUCCESS')] });
   const next = makeView({ statusCheckRollup: [run('a', 'IN_PROGRESS')] });
   assert.deepEqual(diff(prev, next), []);
-  assert.equal(toStored(stored(prev), normalize(next, [])).checks, 'pending');
+  assert.equal(toStored(stored(prev), norm(next)).checks, 'pending');
 });
 
 test('pending to passing emits checks', () => {
@@ -98,74 +98,115 @@ test('pending to passing emits checks', () => {
   ]);
 });
 
-test('a new issue comment emits one event', () => {
-  const next = makeView({ comments: [comment('c1', 'coderabbitai[bot]', 'NONE')] });
-  assert.deepEqual(diff(makeView(), next), [
+test('a new issue comment emits one event naming its fetch path and author type', () => {
+  const view = makeView();
+  assert.deepEqual(diff(view, view, {}, { issue: [rest(11, 'coderabbitai[bot]')] }), [
     {
       pr: 7,
       type: 'comment',
       kind: 'issue',
-      id: 'c1',
+      id: '11',
       author: 'coderabbitai[bot]',
+      authorType: 'Bot',
+      fetch: 'repos/o/r/issues/comments/11',
       association: 'NONE',
     },
   ]);
 });
 
 test('a new line comment emits one event', () => {
-  const lines = [{ id: 99, user: { login: 'bob' }, author_association: 'MEMBER' }];
-  assert.deepEqual(diff(makeView(), makeView(), [], lines), [
-    { pr: 7, type: 'comment', kind: 'line', id: '99', author: 'bob', association: 'MEMBER' },
+  const lines = { line: [rest(99, 'bob', { author_association: 'MEMBER' })] };
+  assert.deepEqual(diff(makeView(), makeView(), {}, lines), [
+    {
+      pr: 7,
+      type: 'comment',
+      kind: 'line',
+      id: '99',
+      author: 'bob',
+      authorType: 'User',
+      fetch: 'repos/o/r/pulls/comments/99',
+      association: 'MEMBER',
+    },
   ]);
 });
 
 test('a new COMMENTED review emits a review-kind comment event', () => {
-  const next = makeView({
-    reviews: [
-      { id: 'r1', author: { login: 'bob' }, authorAssociation: 'MEMBER', state: 'COMMENTED' },
-    ],
-  });
-  assert.deepEqual(diff(makeView(), next), [
-    { pr: 7, type: 'comment', kind: 'review', id: 'r1', author: 'bob', association: 'MEMBER' },
+  const reviews = {
+    review: [rest(21, 'bob', { author_association: 'MEMBER', state: 'COMMENTED' })],
+  };
+  assert.deepEqual(diff(makeView(), makeView(), {}, reviews), [
+    {
+      pr: 7,
+      type: 'comment',
+      kind: 'review',
+      id: '21',
+      author: 'bob',
+      authorType: 'User',
+      fetch: 'repos/o/r/pulls/7/reviews/21',
+      association: 'MEMBER',
+    },
   ]);
 });
 
 test('a new review in another state emits a review event, and PENDING is skipped', () => {
-  const next = makeView({
-    reviews: [
-      { id: 'r1', author: { login: 'bob' }, state: 'CHANGES_REQUESTED' },
-      { id: 'r2', author: { login: 'amy' }, state: 'PENDING' },
+  const reviews = {
+    review: [
+      rest(21, 'bob', { state: 'CHANGES_REQUESTED' }),
+      rest(22, 'amy', { state: 'PENDING' }),
     ],
-  });
-  assert.deepEqual(diff(makeView(), next), [
-    { pr: 7, type: 'review', id: 'r1', author: 'bob', state: 'CHANGES_REQUESTED' },
+  };
+  assert.deepEqual(diff(makeView(), makeView(), {}, reviews), [
+    {
+      pr: 7,
+      type: 'review',
+      id: '21',
+      author: 'bob',
+      authorType: 'User',
+      fetch: 'repos/o/r/pulls/7/reviews/21',
+      state: 'CHANGES_REQUESTED',
+    },
   ]);
 });
 
 test('seen comments are not reported again', () => {
-  const view = makeView({ comments: [comment('c1', 'bob')] });
-  const prev = toStored(stored(makeView()), normalize(view, []));
-  assert.deepEqual(diffSnapshots(prev, normalize(view, []), ME), []);
+  const lists = { issue: [rest(1, 'bob')] };
+  const prev = toStored(stored(makeView()), norm(makeView(), lists));
+  assert.deepEqual(diffSnapshots(prev, norm(makeView(), lists), ME), []);
+});
+
+test('comments saved under GraphQL node IDs by older runs are still seen', () => {
+  const prev = { ...stored(makeView()), seen: { issue: ['N_1'], line: [], review: ['N_2'] } };
+  const lists = { issue: [rest(1, 'bob')], review: [rest(2, 'amy', { state: 'APPROVED' })] };
+  assert.deepEqual(diffSnapshots(prev, norm(makeView(), lists), ME), []);
 });
 
 test('comments and reviews by selfLogin emit nothing and are recorded as seen', () => {
-  const next = makeView({
-    comments: [comment('c1', ME)],
-    reviews: [{ id: 'r1', author: { login: ME }, state: 'COMMENTED' }],
-  });
-  const lines = [{ id: 5, user: { login: ME }, author_association: 'OWNER' }];
-  assert.deepEqual(diff(makeView(), next, [], lines), []);
-  const saved = toStored(stored(makeView()), normalize(next, lines));
-  assert.deepEqual(saved.seen, { issue: ['c1'], line: ['5'], review: ['r1'] });
+  const lists = {
+    issue: [rest(1, ME)],
+    line: [rest(5, ME, { author_association: 'OWNER' })],
+    review: [rest(2, ME, { state: 'COMMENTED' })],
+  };
+  assert.deepEqual(diff(makeView(), makeView(), {}, lists), []);
+  const saved = toStored(stored(makeView()), norm(makeView(), lists));
+  assert.deepEqual(saved.seen, { issue: ['1'], line: ['5'], review: ['2'] });
 });
 
-test('stored snapshots hold IDs, never bodies', () => {
-  const view = makeView({ comments: [{ ...comment('c1', 'bob'), body: 'secret text' }] });
-  assert.ok(!JSON.stringify(stored(view)).includes('secret text'));
+test('stored snapshots and events hold IDs and logins, never bodies', () => {
+  const lists = { issue: [rest(1, 'bob', { body: 'secret text' })] };
+  assert.ok(!JSON.stringify(stored(makeView(), lists)).includes('secret text'));
+  assert.ok(!JSON.stringify(diff(makeView(), makeView(), {}, lists)).includes('secret text'));
+});
+
+test('stored snapshots list each commenter once', () => {
+  const lists = {
+    issue: [rest(1, 'coderabbitai[bot]'), rest(2, 'bob')],
+    review: [rest(3, 'coderabbitai[bot]', { state: 'COMMENTED' })],
+  };
+  assert.deepEqual(stored(makeView(), lists).commenters, ['coderabbitai[bot]', 'bob']);
 });
 
 test('UNKNOWN mergeability emits nothing and keeps the previous value', () => {
-  const next = normalize(makeView({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }), []);
+  const next = norm(makeView({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }));
   const prev = stored(makeView());
   assert.deepEqual(diffSnapshots(prev, next, ME), []);
   const saved = toStored(prev, next);
@@ -174,7 +215,7 @@ test('UNKNOWN mergeability emits nothing and keeps the previous value', () => {
 });
 
 test('UNKNOWN with no previous value stores what came back', () => {
-  const next = normalize(makeView({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }), []);
+  const next = norm(makeView({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }));
   assert.equal(toStored(undefined, next).mergeStateStatus, 'UNKNOWN');
 });
 
