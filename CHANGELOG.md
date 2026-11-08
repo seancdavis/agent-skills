@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.9.1] - 2026-11-08
+
+### Changed
+
+- `preflight` starts from your `grill-me` log when one exists, and suggests
+  running `grill-me` first when what to build is still open.
+- `preflight` draws the plan as a map in chat before you sign off: steps,
+  parallel tracks, decisions, and unknowns, each with its check. Say "go
+  deeper" on any step to split it.
+- `preflight` won't hand off with an open decision or unknown, and the spec
+  records rejected options so the build doesn't drift back into them.
+
 ## [0.9.0] - 2026-11-02
 
 ### Added
