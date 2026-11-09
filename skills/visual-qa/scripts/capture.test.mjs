@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { productionTarget } from './config.mjs';
 import {
+  isPrivateHost,
   isSafeName,
   isSecretField,
   mayTypePassword,
+  originProblem,
   redactMessage,
+  resolvePreviewOrigin,
   validateScenario,
   withCurrent,
 } from './capture.mjs';
@@ -163,4 +166,70 @@ test('productionTarget accepts the production URL', () => {
 test('withCurrent marks only the head commit as current', () => {
   assert.equal(withCurrent({ sha: HEAD }, HEAD).current, true);
   assert.equal(withCurrent({ sha: OTHER }, HEAD).current, false);
+});
+
+test('isPrivateHost blocks local and private hosts', () => {
+  for (const h of [
+    'localhost',
+    'app.localhost',
+    'printer.local',
+    '127.0.0.1',
+    '10.1.2.3',
+    '172.16.0.1',
+    '172.31.255.1',
+    '192.168.1.1',
+    '169.254.169.254',
+    '0.0.0.0',
+    '::1',
+    '[::1]',
+    'fc00::1',
+    'fd12::1',
+    'fe80::1',
+    '[fe80::1]',
+    '::ffff:7f00:1',
+  ]) {
+    assert.equal(isPrivateHost(h), true, h);
+  }
+});
+
+test('isPrivateHost allows public hosts', () => {
+  for (const h of [
+    'app.netlify.com',
+    '8.8.8.8',
+    '172.32.0.1',
+    '172.15.0.1',
+    '192.169.0.1',
+    'locallhost.test',
+  ]) {
+    assert.equal(isPrivateHost(h), false, h);
+  }
+});
+
+const entry = { url: 'https://deploy-preview-{pr}--app.example.test' };
+
+test('resolvePreviewOrigin uses the template, then the check URL', () => {
+  assert.deepEqual(resolvePreviewOrigin(entry, { url: 'https://x.test' }, 7), {
+    origin: 'https://deploy-preview-7--app.example.test',
+  });
+  assert.deepEqual(resolvePreviewOrigin({}, { url: 'https://x.test/a' }, 7), {
+    origin: 'https://x.test',
+  });
+});
+
+test('resolvePreviewOrigin rejects a port, http, or no URL', () => {
+  assert.ok(resolvePreviewOrigin({}, { url: 'https://x.test:8443/' }, 7).problem);
+  assert.ok(resolvePreviewOrigin({}, { url: 'http://x.test/' }, 7).problem);
+  assert.ok(resolvePreviewOrigin({}, {}, 7).problem);
+});
+
+test('originProblem requires an allowed https origin when a login is set', () => {
+  const login = { hosts: ['app.example.test', 'deploy-preview-{pr}--app.example.test'] };
+  assert.equal(originProblem('https://app.example.test', login, null), null);
+  assert.equal(originProblem('https://deploy-preview-7--app.example.test', login, 7), null);
+  assert.ok(originProblem('https://deploy-preview-8--app.example.test', login, 7));
+  assert.ok(originProblem('https://evil.test', login, 7));
+  assert.ok(originProblem('https://app.example.test:8443', login, 7));
+  assert.ok(originProblem('http://app.example.test', login, 7));
+  assert.equal(originProblem('https://x.test', null, null), null);
+  assert.ok(originProblem('https://x.test:444', null, null));
 });
