@@ -73,7 +73,9 @@ node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" approve-auth
 node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" approve-pr <pr> <item>...
 ```
 
-A pass is for one preview and one commit: it is saved with the preview's check name, and gating a second login preview on the same PR replaces it (re-gating is cheap; Codex is skipped when the commit was already cleared). A new push needs a new pass. The gate reads only what changed since the last cleared commit, or the whole PR after a force-push.
+A pass is for one preview and one commit: it is saved with the preview's check name, and gating a second login preview on the same PR replaces it (re-gating is cheap; Codex is skipped when the commit was already cleared). A new push needs a new pass. Whenever Codex runs, it reads the whole PR (`gh pr diff`), never just what changed since an earlier pass; only the same commit on the same preview skips it. Codex runs from the run folder, outside any repo, so files the PR adds (such as `AGENTS.md`) can't steer it.
+
+Commit authors are matched through GitHub's email-to-account link, which someone with push access could fake, so the PR author check is what limits this to people with push access. `approve-pr safety:<sha>` is enforced only by this skill's rule to ask Sean first, since the session can run any command.
 
 ## Capture and judge
 
@@ -121,12 +123,12 @@ A pass is for one preview and one commit: it is saved with the preview's check n
 ## Fixes
 
 - Own same-repo PRs only. Dispatch a `sonnet` developer subagent with your own description of each real problem (the screen, what's wrong, what's expected). It commits and does not push.
-- Run the affected checks yourself, then push to the PR branch with a normal push (never force). The next `preview` event means the new commit's preview is live: re-run the gate (it reads only what changed), then capture again.
+- Run the affected checks yourself, then push to the PR branch with a normal push (never force). The next `preview` event means the new commit's preview is live: re-run the gate (it reads the whole PR again), then capture again.
 - Bound by the spec's loop bound, default 3 rounds per PR. Then ask Sean through `AskUserQuestion`.
 - On anyone else's PR, or a cross-repository PR, report the problems to Sean and stop. Record `failed` with the reason if he wants the result kept:
 
   ```sh
-  node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" record <pr> --status failed --reason "<short reason>" --run <run dir>
+  node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" record <pr> --status failed --reason "<short reason>" --run <run dir>/<scenario name>
   ```
 
 ## Demo last
@@ -145,10 +147,10 @@ Record the demo only once nothing else is in flight: CI passing, CodeRabbit done
 3. Otherwise record it, passing the scenario's run directory (`<run dir>/<scenario name>`):
 
    ```sh
-   node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" record <pr> --status passed --run <run dir>
+   node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" record <pr> --status passed --run <run dir>/<scenario name>
    ```
 
-   `--run` must be inside `~/.claude/visual-qa/runs/`. The record lists that run's `files`.
+   `--run` is the scenario folder (`<run dir>/<scenario name>`, the one holding `run.json`), inside `~/.claude/visual-qa/runs/`. The record lists that run's `files`. `passed` is refused (exit 2) unless that folder's `run.json` is for the head commit, is not stale, and has a demo file that exists.
 
 4. A skip is always recorded with a reason, so `pr-watch` can show it at the gut-check:
 
@@ -177,7 +179,7 @@ node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" signin --ori
 
 To sign in on a preview ahead of `capture`, use `signin <pr> --preview <check>`. It needs the gate pass, re-checks the head and the preview, and signs in on that preview's own URL (the same URL `capture` uses). `--origin` accepts only configured production origins.
 
-Every page the scripts open has requests to localhost, `.local`, and private-network addresses blocked. DNS rebinding is not covered.
+Every page the scripts open has requests and WebSocket connections to localhost, `.local`, dotless names, and private-network addresses blocked. DNS rebinding is not covered. Saved sign-in state is kept per login and host (`state/<login>__<host>.json`); a preview with no login loads none.
 
 ## Setup
 
@@ -234,7 +236,7 @@ Everything private lives in `~/.claude/visual-qa/` (override with `VISUAL_QA_HOM
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" setup --check
    ```
 
-   It reports `{ playwright, chromium, config, logins: { <name>: { secrets, signedIn } } }`, signing in on each login's production origin only, and exits 0 only when everything is true. Nothing in it prints a secret.
+   It reports `{ playwright, chromium, config, logins: { <name>: { secrets, signedIn } } }`, signing in on each login's production origin only, and exits 0 only when everything is true (with no logins configured, `logins` is `{}` and Playwright, Chromium, and config are all that's checked). Nothing in it prints a secret.
 
 ## Exit codes
 
@@ -248,7 +250,7 @@ Everything private lives in `~/.claude/visual-qa/` (override with `VISUAL_QA_HOM
 
 - Never type a password anywhere but `signin.mjs`, and never type or fill a secret from a scenario.
 - Never print, log, or paste secrets: not the token, the password, or a one-time code.
-- Never use Claude in Chrome. It drives Sean's real browser with his own sign-ins; a malicious preview would run next to them. Playwright with a saved state per host is the only browser.
+- Never use Claude in Chrome. It drives Sean's real browser with his own sign-ins; a malicious preview would run next to them. Playwright with saved state per login and host is the only browser.
 - Never upload demos or screenshots to the PR. They stay local.
 - Never sign in on a preview without a gate pass for the head commit.
 - Never save a bot to the approved list. Bots are approved per PR.

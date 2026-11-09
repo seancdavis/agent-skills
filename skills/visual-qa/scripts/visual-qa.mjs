@@ -7,6 +7,10 @@
 // JSON object. Exit codes: 0 done, 1 error, 2 bad usage or refused, 3 blocked,
 // 4 Sean needs to finish sign-in. Secrets are never printed.
 
+// Playwright's debug log can print filled values. Cleared before anything runs;
+// Playwright itself is only loaded later, on demand, by launchBrowser.
+delete process.env.DEBUG;
+
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import {
@@ -65,6 +69,13 @@ const BOOLEAN = ['check', 'demo', 'production-only', 'headed'];
 
 class UsageError extends Error {}
 
+// Playwright errors are long and can echo call details: first line, 200 characters.
+function shortMessage(err) {
+  return String(err?.message ?? err)
+    .split('\n')[0]
+    .slice(0, 200);
+}
+
 export function parseArgs(argv) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -98,7 +109,6 @@ async function setupCheck() {
   const report = { ...playwrightStatus(), config: problems.length === 0, logins: {} };
   if (problems.length) report.problems = problems;
   const names = Object.keys(config.logins);
-  if (names.length === 0) report.config = false;
   let browser = null;
   for (const name of names) {
     const login = config.logins[name];
@@ -108,20 +118,20 @@ async function setupCheck() {
       readSecrets(login);
       entry.secrets = true;
     } catch (err) {
-      entry.error = err.message;
+      entry.error = shortMessage(err);
       continue;
     }
     if (!report.playwright || !report.chromium) continue;
     try {
       browser ??= await launchBrowser();
-      await signIn({ browser, login, origin: login.production });
+      await signIn({ browser, login, loginName: name, origin: login.production });
       entry.signedIn = true;
     } catch (err) {
       if (err instanceof SigninError && err.code === 4) {
         entry.needs = 'sean';
         entry.reason = err.payload.reason;
         report.needsSean = true;
-      } else entry.error = err.message;
+      } else entry.error = shortMessage(err);
     }
   }
   if (browser) await browser.close();
@@ -129,7 +139,6 @@ async function setupCheck() {
     report.playwright &&
     report.chromium &&
     report.config &&
-    names.length > 0 &&
     names.every((n) => report.logins[n].secrets && report.logins[n].signedIn);
   return { code: ok ? 0 : report.needsSean ? 4 : 1, out: report };
 }
@@ -299,7 +308,7 @@ async function main() {
       process.exit(2);
     }
     const code = err instanceof SigninError ? err.code : 1;
-    console.log(JSON.stringify(err.payload ?? { error: err.message }));
+    console.log(JSON.stringify(err.payload ?? { error: shortMessage(err) }));
     process.exit(code);
   }
 }

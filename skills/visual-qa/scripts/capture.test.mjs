@@ -7,11 +7,14 @@ import {
   isSecretField,
   mayTypePassword,
   originProblem,
+  passedRunProblem,
+  recheckBeforeSignIn,
   redactMessage,
   resolvePreviewOrigin,
   validateScenario,
   withCurrent,
 } from './capture.mjs';
+import { blockPrivateNetwork, guardedFill, statePath } from './signin.mjs';
 
 const good = {
   name: 'list-filter',
@@ -187,6 +190,8 @@ test('isPrivateHost blocks local and private hosts', () => {
     'fe80::1',
     '[fe80::1]',
     '::ffff:7f00:1',
+    'intranet',
+    'printer',
   ]) {
     assert.equal(isPrivateHost(h), true, h);
   }
@@ -232,4 +237,169 @@ test('originProblem requires an allowed https origin when a login is set', () =>
   assert.ok(originProblem('http://app.example.test', login, 7));
   assert.equal(originProblem('https://x.test', null, null), null);
   assert.ok(originProblem('https://x.test:444', null, null));
+});
+
+test('isPrivateHost treats a dotless name as private but not an empty host', () => {
+  assert.equal(isPrivateHost('intranet'), true);
+  assert.equal(isPrivateHost('intranet.'), true);
+  assert.equal(isPrivateHost('a.b'), false);
+  assert.equal(isPrivateHost(''), false);
+});
+
+test('statePath keys by login and host, and rejects unsafe names', () => {
+  assert.ok(statePath('acme', 'app.example.test').endsWith('acme__app.example.test.json'));
+  assert.notEqual(statePath('a', 'x.test'), statePath('b', 'x.test'));
+  assert.throws(() => statePath('../evil', 'x.test'));
+  assert.throws(() => statePath('', 'x.test'));
+  assert.throws(() => statePath(undefined, 'x.test'));
+  assert.throws(() => statePath('acme', 'X/y'));
+});
+
+// ---------- passed records ----------
+
+const goodRun = { sha: HEAD, stale: false, demo: '/runs/demo.webm' };
+const exists = () => true;
+
+test('passedRunProblem accepts a current run with a demo that exists', () => {
+  assert.equal(passedRunProblem(goodRun, HEAD, exists), null);
+});
+
+test('passedRunProblem refuses a missing run.json, another commit, a stale run, or no demo', () => {
+  assert.ok(passedRunProblem(null, HEAD, exists));
+  assert.ok(passedRunProblem({ ...goodRun, sha: OTHER }, HEAD, exists));
+  assert.ok(passedRunProblem({ ...goodRun, stale: true }, HEAD, exists));
+  assert.ok(passedRunProblem({ ...goodRun, demo: null }, HEAD, exists));
+  assert.ok(passedRunProblem(goodRun, HEAD, () => false));
+});
+
+// ---------- the checks, with fakes ----------
+
+const prView = (head, state = 'SUCCESS') => ({
+  headRefOid: head,
+  statusCheckRollup: [
+    { __typename: 'StatusContext', context: KEY, state, targetUrl: 'https://x.test' },
+  ],
+});
+const cleared = { clearedSha: HEAD, preview: KEY };
+
+test('recheckBeforeSignIn lets a cleared head with a successful preview through', () => {
+  assert.equal(
+    recheckBeforeSignIn({ repo: 'o/r', pr: 7, previewKey: KEY, record: cleared }, () =>
+      prView(HEAD),
+    ),
+    null,
+  );
+});
+
+test('recheckBeforeSignIn refuses when the head changed', () => {
+  const res = recheckBeforeSignIn({ repo: 'o/r', pr: 7, previewKey: KEY, record: cleared }, () =>
+    prView(OTHER),
+  );
+  assert.equal(res.code, 3);
+  assert.equal(res.out.reason, 'head-changed');
+});
+
+test('recheckBeforeSignIn refuses a missing record or another preview', () => {
+  const get = () => prView(HEAD);
+  assert.equal(
+    recheckBeforeSignIn({ repo: 'o/r', pr: 7, previewKey: KEY, record: null }, get).code,
+    3,
+  );
+  const other = { clearedSha: HEAD, preview: 'x/other/deploy-preview' };
+  assert.equal(
+    recheckBeforeSignIn({ repo: 'o/r', pr: 7, previewKey: KEY, record: other }, get).out.reason,
+    'head-changed',
+  );
+});
+
+test('recheckBeforeSignIn refuses when the preview check is not a success', () => {
+  for (const state of ['PENDING', 'FAILURE']) {
+    const res = recheckBeforeSignIn({ repo: 'o/r', pr: 7, previewKey: KEY, record: cleared }, () =>
+      prView(HEAD, state),
+    );
+    assert.equal(res.code, 3);
+    assert.equal(res.out.reason, 'preview-not-ready');
+  }
+});
+
+const fillLogin = { hosts: ['app.example.test', 'deploy-preview-{pr}--app.example.test'] };
+
+function fakeFill(url) {
+  const filled = [];
+  const handle = { fill: async (v) => filled.push(v), dispose: async () => {} };
+  const page = { url: () => url };
+  const locator = { elementHandle: async () => handle };
+  return { page, locator, filled };
+}
+
+test('guardedFill refuses http, a port, or another host, and types nothing', async () => {
+  for (const url of [
+    'http://app.example.test/login',
+    'https://app.example.test:8443/login',
+    'https://evil.test/login',
+    'https://deploy-preview-8--app.example.test/',
+  ]) {
+    const { page, locator, filled } = fakeFill(url);
+    await assert.rejects(guardedFill(page, locator, 'secret', fillLogin, 7), /left the allowed/);
+    assert.deepEqual(filled, [], url);
+  }
+});
+
+test('guardedFill fills on an allowed https origin', async () => {
+  for (const url of [
+    'https://app.example.test/login',
+    'https://deploy-preview-7--app.example.test/',
+  ]) {
+    const { page, locator, filled } = fakeFill(url);
+    await guardedFill(page, locator, 'secret', fillLogin, 7);
+    assert.deepEqual(filled, ['secret']);
+  }
+});
+
+test('blockPrivateNetwork aborts private hosts and continues public ones', async () => {
+  let httpHandler;
+  let wsHandler;
+  const context = {
+    route: async (_pattern, fn) => (httpHandler = fn),
+    routeWebSocket: async (_pattern, fn) => (wsHandler = fn),
+  };
+  await blockPrivateNetwork(context);
+  const route = (url) => {
+    const seen = {};
+    return {
+      seen,
+      request: () => ({ url: () => url }),
+      abort: (reason) => (seen.aborted = reason),
+      continue: () => (seen.continued = true),
+    };
+  };
+  const priv = route('http://192.168.1.5/admin');
+  await httpHandler(priv);
+  assert.equal(priv.seen.aborted, 'blockedbyclient');
+  assert.equal(priv.seen.continued, undefined);
+  const dotless = route('http://intranet/x');
+  await httpHandler(dotless);
+  assert.equal(dotless.seen.aborted, 'blockedbyclient');
+  const pub = route('https://app.example.test/a.js');
+  await httpHandler(pub);
+  assert.equal(pub.seen.continued, true);
+  assert.equal(pub.seen.aborted, undefined);
+
+  const socket = (url) => {
+    const seen = {};
+    return {
+      seen,
+      url: () => url,
+      close: (opts) => (seen.closed = opts),
+      connectToServer: () => (seen.connected = true),
+    };
+  };
+  const wsPriv = socket('ws://localhost:3000/ws');
+  await wsHandler(wsPriv);
+  assert.ok(wsPriv.seen.closed);
+  assert.equal(wsPriv.seen.connected, undefined);
+  const wsPub = socket('wss://app.example.test/ws');
+  await wsHandler(wsPub);
+  assert.equal(wsPub.seen.connected, true);
+  assert.equal(wsPub.seen.closed, undefined);
 });
