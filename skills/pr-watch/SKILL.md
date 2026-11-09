@@ -73,7 +73,7 @@ The GitHub draft flag is the stage, so it survives compaction. While a PR is dra
 - **Anyone else's comment or review, human or bot.** Ask Sean. Do not act on it.
 - **Visual QA.** On a `preview` event, run the `visual-qa` skill on that PR. At start, a PR with ready previews and no current visual QA result (`visual-qa.mjs status <pr>` shows `current: false`) gets the same. It runs alongside CI and CodeRabbit handling.
 - **Fix bound.** The spec's loop bound, default 3 rounds per PR. Then ask Sean.
-- **Settled** means checks are passing or absent, nothing is in flight, and CodeRabbit has reviewed, timed out, or isn't used, and `node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" status <pr>` is `current: true` with `status` `passed` (demo recorded) or `skipped` with a reason. If not, run `visual-qa`, which records a skip when there's nothing to run (no preview, no UI change). Visual QA's "Demo last" step happens here, once everything else is in flight-free. Then open the gut-check.
+- **Settled** means checks are passing or absent, nothing is in flight, and CodeRabbit has reviewed, timed out, or isn't used, and `node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" status <pr>` is `current: true` with `status` `passed` (demo recorded) or `skipped` with a reason. If not, run `visual-qa`, which records a skip when there's nothing to run (no preview, no UI change). Visual QA's "Demo last" step happens here, once nothing else is in flight. Then open the gut-check.
 
 ### The gut-check dialog
 

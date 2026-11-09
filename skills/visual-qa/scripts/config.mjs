@@ -112,6 +112,17 @@ export function hostAllowed(host, patterns, pr) {
   });
 }
 
+// A secret may be typed only on https, on the default port, on an allowed host.
+export function secretOriginAllowed(urlString, patterns, pr) {
+  let url;
+  try {
+    url = new URL(urlString);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' && url.port === '' && hostAllowed(url.hostname, patterns, pr);
+}
+
 function originOf(url) {
   try {
     return new URL(url).origin;

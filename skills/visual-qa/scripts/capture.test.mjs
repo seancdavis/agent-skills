@@ -5,6 +5,7 @@ import {
   isSafeName,
   isSecretField,
   mayTypePassword,
+  redactMessage,
   validateScenario,
   withCurrent,
 } from './capture.mjs';
@@ -84,36 +85,60 @@ test('isSecretField', () => {
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
 
+const KEY = 'acme/app/deploy-preview';
+const preview = { login: 'acme' };
+
 test('mayTypePassword refuses a missing record', () => {
-  assert.equal(
-    mayTypePassword({ preview: { login: 'acme' }, record: undefined, head: HEAD }),
-    false,
-  );
+  assert.equal(mayTypePassword({ preview, previewKey: KEY, record: undefined, head: HEAD }), false);
 });
 
 test('mayTypePassword refuses a record for another commit', () => {
-  const record = { clearedSha: OTHER };
-  assert.equal(mayTypePassword({ preview: { login: 'acme' }, record, head: HEAD }), false);
+  const record = { clearedSha: OTHER, preview: KEY };
+  assert.equal(mayTypePassword({ preview, previewKey: KEY, record, head: HEAD }), false);
+});
+
+test('mayTypePassword refuses a record for another preview', () => {
+  const record = { clearedSha: HEAD, preview: 'acme/other/deploy-preview' };
+  assert.equal(mayTypePassword({ preview, previewKey: KEY, record, head: HEAD }), false);
+  assert.equal(
+    mayTypePassword({ preview, previewKey: KEY, record: { clearedSha: HEAD }, head: HEAD }),
+    false,
+  );
 });
 
 test('mayTypePassword refuses when the head is unknown', () => {
   assert.equal(
     mayTypePassword({
-      preview: { login: 'acme' },
-      record: { clearedSha: undefined },
+      preview,
+      previewKey: KEY,
+      record: { clearedSha: undefined, preview: KEY },
       head: undefined,
     }),
     false,
   );
 });
 
-test('mayTypePassword passes for the head commit', () => {
-  const record = { clearedSha: HEAD };
-  assert.equal(mayTypePassword({ preview: { login: 'acme' }, record, head: HEAD }), true);
+test('mayTypePassword passes for the head commit and the same preview', () => {
+  const record = { clearedSha: HEAD, preview: KEY };
+  assert.equal(mayTypePassword({ preview, previewKey: KEY, record, head: HEAD }), true);
 });
 
 test('mayTypePassword passes for a preview with no login', () => {
-  assert.equal(mayTypePassword({ preview: { login: null }, record: undefined, head: HEAD }), true);
+  assert.equal(
+    mayTypePassword({ preview: { login: null }, previewKey: KEY, record: undefined, head: HEAD }),
+    true,
+  );
+});
+
+test('redactMessage hides long token-like runs and URL queries, then cuts', () => {
+  const token = 'abcDEF0123456789abcDEF0123456789';
+  const out = redactMessage(`bad ${token} at https://x.example.test/a?code=1&t=2#frag end`);
+  assert.ok(!out.includes(token));
+  assert.ok(out.includes('[redacted]'));
+  assert.ok(!out.includes('code=1') && !out.includes('frag'));
+  assert.ok(out.includes('https://x.example.test/a'));
+  assert.equal(redactMessage('x '.repeat(300)).length, 200);
+  assert.equal(redactMessage('short message'), 'short message');
 });
 
 const config = {

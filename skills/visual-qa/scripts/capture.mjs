@@ -91,10 +91,26 @@ export function isSecretField({ type, autocomplete } = {}) {
 }
 
 // The password may be typed on a preview only when its login's gate passed for
-// this exact head commit. A preview with no login types nothing.
-export function mayTypePassword({ preview, record, head }) {
+// this exact head commit and for this preview (`previewKey`). A preview with no
+// login types nothing.
+export function mayTypePassword({ preview, previewKey, record, head }) {
   if (!preview?.login) return true;
-  return Boolean(head) && Boolean(record) && record.clearedSha === head;
+  return (
+    Boolean(head) &&
+    Boolean(previewKey) &&
+    Boolean(record) &&
+    record.clearedSha === head &&
+    record.preview === previewKey
+  );
+}
+
+// Console and page text comes from the PR's code. Long token-like runs, URL
+// query strings, and fragments are removed, then it is cut short.
+export function redactMessage(text, max = MAX_MESSAGE_CHARS) {
+  return String(text ?? '')
+    .replace(/(https?:\/\/[^\s?#]*)[?#]\S*/gi, '$1')
+    .replace(/[A-Za-z0-9+/=_.-]{24,}/g, '[redacted]')
+    .slice(0, max);
 }
 
 export function withCurrent(latest, head) {
@@ -151,7 +167,7 @@ async function doStep(page, step, { origin, dir, prefix, shots }) {
 }
 
 // Runs the scenario in a fresh context that loads only `host`'s saved state.
-// Returns { url, shots, failedStep, consoleErrors, pageErrors, messages }.
+// Returns { url, shots, failedStep, consoleErrors, pageErrors, messages, videoError? }.
 async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo }) {
   const host = new URL(origin).hostname;
   const viewport = scenario.viewport ?? { width: 1280, height: 800 };
@@ -170,8 +186,7 @@ async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo 
     messages: [],
   };
   const note = (text) => {
-    if (result.messages.length < MAX_MESSAGES)
-      result.messages.push(text.slice(0, MAX_MESSAGE_CHARS));
+    if (result.messages.length < MAX_MESSAGES) result.messages.push(redactMessage(text));
   };
   const context = await browser.newContext(options);
   const page = await context.newPage();
@@ -238,8 +253,9 @@ async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo 
     if (videoTo && video) {
       try {
         await video.saveAs(videoTo);
-      } catch {
-        // No video is better than a failed run.
+      } catch (err) {
+        // The caller fails the command when --demo was asked for and no video exists.
+        result.videoError = firstLine(err);
       }
     }
     rmSync(tmpVideo, { recursive: true, force: true });
@@ -272,6 +288,32 @@ function writeRun(dir, run) {
   writeFileSync(path, `${JSON.stringify(run, null, 2)}\n`);
 }
 
+// Run immediately before a preview sign-in. Reads the PR's head commit and the
+// preview check again: the password is typed only if the head is still the
+// commit the gate cleared and the preview check is a success. The seconds
+// between this check and the typing are a race we accept.
+function recheckBeforeSignIn({ repo, pr, previewKey, record }) {
+  const view = readPr(repo, pr);
+  const head = view.headRefOid;
+  if (!record || record.clearedSha !== head || record.preview !== previewKey) {
+    return { code: 3, out: { blocked: true, reason: 'head-changed', sha: head } };
+  }
+  const check = findPreviewCheck(view.statusCheckRollup, previewKey);
+  if (check.state !== 'success') {
+    return { code: 3, out: { blocked: true, reason: 'preview-not-ready', state: check.state } };
+  }
+  return null;
+}
+
+function demoMissing(videoError) {
+  return {
+    code: 1,
+    out: {
+      error: `The demo video was not saved${videoError ? `: ${videoError}` : '.'}`,
+    },
+  };
+}
+
 function sideFiles(side) {
   return side ? side.shots : [];
 }
@@ -295,7 +337,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
   const head = view.headRefOid;
   const record = loadGate(repo).prs?.[String(pr)];
   // The gate check comes before any browser is launched.
-  if (!mayTypePassword({ preview: entry, record, head })) {
+  if (!mayTypePassword({ preview: entry, previewKey, record, head })) {
     return { code: 3, out: { blocked: true, reason: 'run gate first', sha: head } };
   }
   const check = findPreviewCheck(view.statusCheckRollup, previewKey);
@@ -328,6 +370,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
     files: [],
   };
 
+  let videoError;
   const browser = await launchBrowser();
   try {
     if (entry.production) {
@@ -343,7 +386,11 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
       });
       run.before = { url: before.url, shots: before.shots, failedStep: before.failedStep };
     }
-    if (login) await signIn({ browser, login, origin: previewOrigin, pr });
+    if (login) {
+      const stale = recheckBeforeSignIn({ repo, pr, previewKey, record });
+      if (stale) return stale;
+      await signIn({ browser, login, origin: previewOrigin, pr });
+    }
     const videoTo = demo ? join(runBase, 'demo.webm') : null;
     const after = await runSide({
       browser,
@@ -363,6 +410,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
       messages: after.messages,
     };
     if (videoTo && existsSync(videoTo)) run.demo = videoTo;
+    videoError = after.videoError;
   } finally {
     await browser.close();
   }
@@ -370,7 +418,9 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
   run.files = [...sideFiles(run.before), ...sideFiles(run.after), ...(run.demo ? [run.demo] : [])];
   run.stale = readPr(repo, pr).headRefOid !== head;
   writeRun(runBase, run);
-  return { code: run.stale ? 3 : 0, out: run };
+  if (run.stale) return { code: 3, out: run };
+  if (demo && !run.demo) return demoMissing(videoError);
+  return { code: 0, out: run };
 }
 
 // Before side only, on a configured production site. No PR, no gate.
@@ -410,6 +460,7 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
     files: [...side.shots, ...(videoTo && existsSync(videoTo) ? [videoTo] : [])],
   };
   writeRun(runBase, run);
+  if (demo && !run.demo) return demoMissing(side.videoError);
   return { code: 0, out: run };
 }
 
@@ -426,6 +477,7 @@ export async function runSigninCommand({ origin, pr, repo, headed }) {
   const target = productionTarget(config, parsed.origin);
   let login = null;
   let usePr = null;
+  let previewKey = null;
   if (target) {
     if (!target.login) return refused(['That production site has no login.']);
     login = config.logins?.[target.login];
@@ -433,25 +485,35 @@ export async function runSigninCommand({ origin, pr, repo, headed }) {
     if (!pr || !repo) return refused(['A preview origin needs --pr and --repo.']);
     const view = readPr(repo, pr);
     const record = loadGate(repo).prs?.[String(pr)];
-    const candidates = Object.values(config.repos?.[repo]?.previews ?? {}).filter(
-      (p) =>
+    const candidates = Object.entries(config.repos?.[repo]?.previews ?? {}).filter(
+      ([, p]) =>
         p.login &&
         config.logins?.[p.login] &&
         hostAllowed(parsed.hostname, config.logins[p.login].hosts, pr),
     );
     if (candidates.length === 0) return refused(['That origin is not an allowed preview host.']);
-    const passing = candidates.find((p) =>
-      mayTypePassword({ preview: p, record, head: view.headRefOid }),
+    const passing = candidates.find(([key, p]) =>
+      mayTypePassword({ preview: p, previewKey: key, record, head: view.headRefOid }),
     );
     if (!passing) {
       return { code: 3, out: { blocked: true, reason: 'run gate first', sha: view.headRefOid } };
     }
-    login = config.logins[passing.login];
+    previewKey = passing[0];
+    login = config.logins[passing[1].login];
     usePr = pr;
   }
   if (!login) return refused(['Login is not configured.']);
   const browser = await launchBrowser({ headed: Boolean(headed) });
   try {
+    if (previewKey) {
+      const stale = recheckBeforeSignIn({
+        repo,
+        pr,
+        previewKey,
+        record: loadGate(repo).prs?.[String(pr)],
+      });
+      if (stale) return stale;
+    }
     const result = await signIn({
       browser,
       login,
