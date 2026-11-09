@@ -16,8 +16,15 @@ import {
   saveConfig,
   validateConfig,
 } from './config.mjs';
-import { findPreviews } from '../../pr-watch/scripts/watch-pr.mjs';
-import { approvePr, findPreviewCheck, loadGate, readPr, runGate, saveGate } from './gate.mjs';
+import {
+  approvePr,
+  findPreviewCheck,
+  listPreviewChecks,
+  loadGate,
+  readPr,
+  runGate,
+  saveGate,
+} from './gate.mjs';
 import {
   runCapture,
   runProductionOnly,
@@ -172,13 +179,14 @@ function previewsCommand(args) {
   const repo = args.repo ?? defaultRepo();
   const configured = loadConfig().repos?.[repo]?.previews ?? {};
   const view = readPr(repo, pr);
-  const list = findPreviews(view.statusCheckRollup).map((p) => ({
+  // Every deploy-preview check, ready or still building, configured or not.
+  const list = listPreviewChecks(view.statusCheckRollup).map((p) => ({
     name: p.name,
     url: p.url,
-    state: 'success',
+    state: p.state,
     config: configured[p.name] ?? null,
   }));
-  // Configured previews that are not ready yet are listed with their state.
+  // A configured preview with a custom check name is listed too.
   for (const [name, config] of Object.entries(configured)) {
     if (list.some((p) => p.name === name)) continue;
     const check = findPreviewCheck(view.statusCheckRollup, name);
@@ -286,7 +294,7 @@ async function main() {
     process.exit(code);
   } catch (err) {
     if (err instanceof UsageError) {
-      console.error(`${err.message}\n${USAGE}`);
+      console.log(JSON.stringify({ error: err.message, usage: USAGE }, null, 2));
       process.exit(2);
     }
     const code = err instanceof SigninError ? err.code : 1;

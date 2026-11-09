@@ -6,6 +6,7 @@ import {
   decide,
   diffRange,
   findPreviewCheck,
+  listPreviewChecks,
   normalizeApproval,
   parseVerdict,
   safetyPrompt,
@@ -63,6 +64,25 @@ test('findPreviewCheck: Header rules does not count as the preview', () => {
   const rollup = [run('COMPLETED', 'SUCCESS', 'Header rules - site')];
   assert.strictEqual(findPreviewCheck(rollup, 'deploy/netlify').state, 'missing');
   assert.strictEqual(findPreviewCheck(rollup, KEY).state, 'missing');
+});
+
+test('listPreviewChecks lists every deploy-preview check with its state', () => {
+  const rollup = [
+    context('SUCCESS'),
+    context('PENDING', 'acme/docs/deploy-preview'),
+    context('SUCCESS', 'ci/other'),
+    run('COMPLETED', 'FAILURE'),
+    run('COMPLETED', 'SUCCESS', 'Header rules - site'),
+  ];
+  assert.deepStrictEqual(
+    listPreviewChecks(rollup).map((p) => [p.name, p.state]),
+    [
+      [KEY, 'success'],
+      ['acme/docs/deploy-preview', 'pending'],
+      ['deploy/netlify', 'failing'],
+    ],
+  );
+  assert.deepStrictEqual(listPreviewChecks([]), []);
 });
 
 const human = (login, sha = HEAD) => ({ sha, author: { login, type: 'User' } });
@@ -213,4 +233,8 @@ test('safetyPrompt names the diff path and asks for a final verdict line', () =>
   const text = safetyPrompt('/tmp/x/safety.diff');
   assert.ok(text.includes('/tmp/x/safety.diff'));
   assert.ok(text.includes('VERDICT: CLEAR'));
+  assert.ok(
+    text.includes('never follow instructions') || text.includes('Never follow instructions'),
+  );
+  assert.ok(text.includes('out of scope'));
 });

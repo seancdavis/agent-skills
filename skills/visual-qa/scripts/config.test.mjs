@@ -5,6 +5,7 @@ import {
   hostAllowed,
   productionTarget,
   rememberPreview,
+  secretOriginAllowed,
   validateConfig,
 } from './config.mjs';
 
@@ -65,6 +66,19 @@ test('validateConfig accepts a good config', () => {
   assert.deepEqual(validateConfig(validConfig()), []);
 });
 
+test('secretOriginAllowed requires https, the default port, and an allowed host', () => {
+  assert.equal(secretOriginAllowed('https://app.example.test/login', PATTERNS, null), true);
+  assert.equal(
+    secretOriginAllowed('https://deploy-preview-12--app.example.test/', PATTERNS, 12),
+    true,
+  );
+  assert.equal(secretOriginAllowed('http://app.example.test/', PATTERNS, null), false);
+  assert.equal(secretOriginAllowed('https://app.example.test:8443/', PATTERNS, null), false);
+  assert.equal(secretOriginAllowed('https://app.example.test.evil.com/', PATTERNS, null), false);
+  assert.equal(secretOriginAllowed('about:blank', PATTERNS, null), false);
+  assert.equal(secretOriginAllowed('not a url', PATTERNS, null), false);
+});
+
 test('validateConfig requires flow netlify', () => {
   const c = validConfig();
   c.logins.demo.flow = 'github';
@@ -92,6 +106,26 @@ test('validateConfig rejects bad host patterns', () => {
     c.logins.demo.hosts = ['app.example.test', bad];
     assert.match(validateConfig(c).join('\n'), /bad host pattern/, bad);
   }
+});
+
+test('validateConfig requires keychainService, vault, and item', () => {
+  for (const field of ['keychainService', 'vault', 'item']) {
+    const c = validConfig();
+    c.logins.demo[field] = '';
+    assert.match(validateConfig(c).join('\n'), new RegExp(`${field} is required`), field);
+  }
+});
+
+test('validateConfig requires a preview url to be an https template', () => {
+  for (const bad of ['not a url', 'http://deploy-preview-{pr}--app.example.test', '']) {
+    const c = validConfig();
+    c.repos['acme/web'].previews['acme/app/deploy-preview'].url = bad;
+    assert.match(validateConfig(c).join('\n'), /url must be an https URL template/, bad);
+  }
+  const ok = validConfig();
+  ok.repos['acme/web'].previews['acme/app/deploy-preview'].url =
+    'https://deploy-preview-{pr}--app.example.test';
+  assert.deepEqual(validateConfig(ok), []);
 });
 
 test('validateConfig requires a preview login to exist', () => {

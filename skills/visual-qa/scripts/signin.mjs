@@ -4,8 +4,8 @@
 // file that ever types a password. Secrets are read on demand (Keychain holds a
 // read-only 1Password service-account token; `op` reads the login), typed into
 // the page, and never printed, logged, or put in an error. Before every fill the
-// page's host is checked again against the login's allowed hosts for this PR, so
-// a redirect to anywhere else stops the run before anything is typed.
+// page's origin is checked again (https, default port, an allowed host for this
+// PR), so a redirect to anywhere else stops the run before anything is typed.
 //
 // Sign-in contexts never record video, and nothing here starts tracing or HAR
 // capture. Saved browser state goes to <home>/state/<host>.json, mode 0600, and a
@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { home, hostAllowed } from './config.mjs';
+import { home, hostAllowed, secretOriginAllowed } from './config.mjs';
 
 const INSTALL_MESSAGE =
   "Playwright isn't installed in ~/.claude/visual-qa. Run `npm install playwright` and `npx playwright install chromium` there.";
@@ -83,20 +83,27 @@ export async function launchBrowser({ headed = false } = {}) {
   return chromium.launch({ headless: !headed });
 }
 
-function currentHost(page) {
-  return new URL(page.url()).hostname;
-}
-
-// Throws before typing when the page is not on an allowed host for this PR.
+// Resolves the field first, then checks the page's URL (https, default port,
+// allowed host for this PR), then fills that same handle, so a navigation
+// between the check and the fill cannot redirect the value.
 async function guardedFill(page, locator, value, login, pr) {
-  if (!hostAllowed(currentHost(page), login.hosts, pr)) {
-    throw new SigninError('Page left the allowed hosts; stopped before typing anything.', 2);
+  let handle;
+  try {
+    handle = await locator.elementHandle({ timeout: 15000 });
+  } catch {
+    throw new SigninError('Could not find a sign-in field.');
   }
   try {
-    await locator.fill(value, { timeout: 15000 });
-  } catch {
+    if (!secretOriginAllowed(page.url(), login.hosts, pr)) {
+      throw new SigninError('Page left the allowed origins; stopped before typing anything.', 2);
+    }
+    await handle.fill(value, { timeout: 15000 });
+  } catch (err) {
+    if (err instanceof SigninError) throw err;
     // Playwright's own message can echo call details, so it is dropped.
     throw new SigninError('Could not fill a sign-in field.');
+  } finally {
+    await handle.dispose().catch(() => {});
   }
 }
 
