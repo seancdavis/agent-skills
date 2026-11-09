@@ -43,7 +43,8 @@ const USAGE = `Usage:
   visual-qa.mjs gate <pr> --preview <check> [--repo owner/name]
   visual-qa.mjs capture <pr> --preview <check> --scenario <file> [--demo] [--repo owner/name]
   visual-qa.mjs capture --production-only --url <url> --scenario <file> [--demo]
-  visual-qa.mjs signin --origin <url> [--pr <n>] [--repo owner/name] [--headed]
+  visual-qa.mjs signin <pr> --preview <check> [--repo owner/name]
+  visual-qa.mjs signin --origin <production-url> [--headed]
   visual-qa.mjs record <pr> --status <passed|failed|skipped> [--reason <text>] [--run <dir>] [--repo owner/name]
   visual-qa.mjs status <pr> [--repo owner/name]`;
 
@@ -56,7 +57,6 @@ const VALUED = [
   'preview',
   'scenario',
   'origin',
-  'pr',
   'status',
   'reason',
   'run',
@@ -179,14 +179,12 @@ function previewsCommand(args) {
   const repo = args.repo ?? defaultRepo();
   const configured = loadConfig().repos?.[repo]?.previews ?? {};
   const view = readPr(repo, pr);
-  // Every deploy-preview check, ready or still building, configured or not.
   const list = listPreviewChecks(view.statusCheckRollup).map((p) => ({
     name: p.name,
     url: p.url,
     state: p.state,
     config: configured[p.name] ?? null,
   }));
-  // A configured preview with a custom check name is listed too.
   for (const [name, config] of Object.entries(configured)) {
     if (list.some((p) => p.name === name)) continue;
     const check = findPreviewCheck(view.statusCheckRollup, name);
@@ -237,17 +235,20 @@ function captureCommand(args) {
 }
 
 function signinCommand(args) {
-  if (args._.length) throw new UsageError('signin takes no positional arguments.');
-  if (!args.origin) throw new UsageError('--origin is required.');
-  if (args.pr !== undefined && !/^[1-9][0-9]{0,8}$/.test(args.pr)) {
-    throw new UsageError('--pr must be a PR number.');
+  if (args.preview) {
+    if (args.origin) throw new UsageError('Use either <pr> --preview or --origin, not both.');
+    const pr = prNumber(args, 'signin');
+    if (args._.length > 1) throw new UsageError('signin takes exactly <pr>.');
+    return runSigninCommand({
+      pr,
+      repo: args.repo ?? defaultRepo(),
+      previewKey: args.preview,
+      headed: args.headed,
+    });
   }
-  return runSigninCommand({
-    origin: args.origin,
-    pr: args.pr,
-    repo: args.pr ? (args.repo ?? defaultRepo()) : args.repo,
-    headed: args.headed,
-  });
+  if (args._.length) throw new UsageError('signin takes no <pr> without --preview.');
+  if (!args.origin) throw new UsageError('--preview or --origin is required.');
+  return runSigninCommand({ origin: args.origin, headed: args.headed });
 }
 
 function recordCommand(args) {

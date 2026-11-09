@@ -10,9 +10,11 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { home, hostAllowed, loadConfig, productionTarget } from './config.mjs';
+import { home, loadConfig, productionTarget, secretOriginAllowed } from './config.mjs';
 import { findPreviewCheck, loadGate, previewUrl, readPr, runDir as gateRunDir } from './gate.mjs';
-import { launchBrowser, signIn, statePath } from './signin.mjs';
+import { blockPrivateNetwork, isPrivateHost, launchBrowser, signIn, statePath } from './signin.mjs';
+
+export { isPrivateHost };
 
 const STEP_TIMEOUT_MS = 10000;
 const LOAD_TIMEOUT_MS = 45000;
@@ -113,6 +115,33 @@ export function redactMessage(text, max = MAX_MESSAGE_CHARS) {
     .slice(0, max);
 }
 
+// The preview's origin, from the config `url` template or the check's URL.
+// Only https on the default port is accepted. Returns { origin } or { problem }.
+export function resolvePreviewOrigin(entry, check, pr) {
+  let url;
+  try {
+    url = new URL(previewUrl(entry, check, pr));
+  } catch {
+    return { problem: 'The preview URL is missing or not a URL.' };
+  }
+  if (url.protocol !== 'https:' || url.port !== '') {
+    return { problem: 'The preview URL must be https on the default port.' };
+  }
+  return { origin: url.origin };
+}
+
+// Why a side's origin may not be visited, or null. With a login the origin must
+// pass the full secret-origin check; without one it is still https, default port.
+export function originProblem(origin, login, pr) {
+  if (login) {
+    return secretOriginAllowed(origin, login.hosts, pr)
+      ? null
+      : `${new URL(origin).hostname} is not an allowed https sign-in origin for this PR.`;
+  }
+  const url = new URL(origin);
+  return url.protocol === 'https:' && url.port === '' ? null : 'Origins must be https, no port.';
+}
+
 export function withCurrent(latest, head) {
   return { ...latest, current: latest?.sha === head };
 }
@@ -168,7 +197,9 @@ async function doStep(page, step, { origin, dir, prefix, shots }) {
 
 // Runs the scenario in a fresh context that loads only `host`'s saved state.
 // Returns { url, shots, failedStep, consoleErrors, pageErrors, messages, videoError? }.
-async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo }) {
+async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo, pr = null }) {
+  const problem = originProblem(origin, login, pr);
+  if (problem) throw new StepError(problem);
   const host = new URL(origin).hostname;
   const viewport = scenario.viewport ?? { width: 1280, height: 800 };
   const options = { viewport };
@@ -189,6 +220,7 @@ async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo 
     if (result.messages.length < MAX_MESSAGES) result.messages.push(redactMessage(text));
   };
   const context = await browser.newContext(options);
+  await blockPrivateNetwork(context);
   const page = await context.newPage();
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
   page.on('console', (msg) => {
@@ -344,18 +376,14 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
   if (check.state !== 'success') {
     return { code: 3, out: { blocked: true, reason: 'preview-not-ready', state: check.state } };
   }
-  let previewOrigin;
-  try {
-    const url = new URL(previewUrl(entry, check, pr));
-    if (url.protocol !== 'https:') throw new Error('not https');
-    previewOrigin = url.origin;
-  } catch {
-    return refused(['The preview URL is missing or not https.']);
-  }
-  const previewHost = new URL(previewOrigin).hostname;
-  if (login && !hostAllowed(previewHost, login.hosts, pr)) {
-    return refused([`${previewHost} is not an allowed sign-in host for this PR.`]);
-  }
+  const resolved = resolvePreviewOrigin(entry, check, pr);
+  if (resolved.problem) return refused([resolved.problem]);
+  const previewOrigin = resolved.origin;
+  const problems = [
+    originProblem(previewOrigin, login, pr),
+    entry.production ? originProblem(new URL(entry.production).origin, login, null) : null,
+  ].filter(Boolean);
+  if (problems.length) return refused(problems);
 
   const runBase = join(gateRunDir(repo, pr, head), scenario.name);
   mkdirSync(runBase, { recursive: true });
@@ -400,6 +428,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
       prefix: 'after',
       login,
       videoTo,
+      pr,
     });
     run.after = {
       url: after.url,
@@ -434,6 +463,9 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
   const login = target.login ? config.logins?.[target.login] : null;
   if (target.login && !login) return refused([`Login "${target.login}" is not configured.`]);
 
+  const problem = originProblem(target.origin, login, null);
+  if (problem) return refused([problem]);
+
   const runBase = join(home(), 'runs', 'production', timestamp(), scenario.name);
   mkdirSync(runBase, { recursive: true });
   const browser = await launchBrowser();
@@ -464,61 +496,59 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
   return { code: 0, out: run };
 }
 
-// Signs in once and saves state. A preview origin needs the same gate pass as capture.
-export async function runSigninCommand({ origin, pr, repo, headed }) {
-  let parsed;
-  try {
-    parsed = new URL(origin);
-  } catch {
-    return refused(['--origin must be a URL.']);
-  }
-  if (parsed.protocol !== 'https:') return refused(['--origin must be https.']);
+// Signs in once and saves state. A preview needs the same gate pass as capture and
+// signs in on the gated preview's own URL; `--origin` is for production only.
+export async function runSigninCommand({ origin, pr, repo, previewKey, headed }) {
   const config = loadConfig();
-  const target = productionTarget(config, parsed.origin);
-  let login = null;
-  let usePr = null;
-  let previewKey = null;
-  if (target) {
-    if (!target.login) return refused(['That production site has no login.']);
-    login = config.logins?.[target.login];
-  } else {
-    if (!pr || !repo) return refused(['A preview origin needs --pr and --repo.']);
+  let login;
+  let target;
+  let record = null;
+  if (previewKey) {
+    if (headed) return refused(['--headed is only for production sign-in.']);
+    const entry = config.repos?.[repo]?.previews?.[previewKey];
+    if (!entry) return refused([`No config entry for ${previewKey}; run remember-preview.`]);
+    login = entry.login ? config.logins?.[entry.login] : null;
+    if (!login) return refused(['That preview has no configured login.']);
     const view = readPr(repo, pr);
-    const record = loadGate(repo).prs?.[String(pr)];
-    const candidates = Object.entries(config.repos?.[repo]?.previews ?? {}).filter(
-      ([, p]) =>
-        p.login &&
-        config.logins?.[p.login] &&
-        hostAllowed(parsed.hostname, config.logins[p.login].hosts, pr),
-    );
-    if (candidates.length === 0) return refused(['That origin is not an allowed preview host.']);
-    const passing = candidates.find(([key, p]) =>
-      mayTypePassword({ preview: p, previewKey: key, record, head: view.headRefOid }),
-    );
-    if (!passing) {
-      return { code: 3, out: { blocked: true, reason: 'run gate first', sha: view.headRefOid } };
+    const head = view.headRefOid;
+    record = loadGate(repo).prs?.[String(pr)];
+    if (!mayTypePassword({ preview: entry, previewKey, record, head })) {
+      return { code: 3, out: { blocked: true, reason: 'run gate first', sha: head } };
     }
-    previewKey = passing[0];
-    login = config.logins[passing[1].login];
-    usePr = pr;
+    const check = findPreviewCheck(view.statusCheckRollup, previewKey);
+    if (check.state !== 'success') {
+      return { code: 3, out: { blocked: true, reason: 'preview-not-ready', state: check.state } };
+    }
+    const resolved = resolvePreviewOrigin(entry, check, pr);
+    if (resolved.problem) return refused([resolved.problem]);
+    target = resolved.origin;
+  } else {
+    let parsed;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      return refused(['--origin must be a URL.']);
+    }
+    const production = productionTarget(config, parsed.origin);
+    if (!production) return refused(['--origin must be a configured production site.']);
+    if (!production.login) return refused(['That production site has no login.']);
+    login = config.logins?.[production.login];
+    if (!login) return refused(['Login is not configured.']);
+    target = production.origin;
   }
-  if (!login) return refused(['Login is not configured.']);
+  const problem = originProblem(target, login, previewKey ? pr : null);
+  if (problem) return refused([problem]);
   const browser = await launchBrowser({ headed: Boolean(headed) });
   try {
     if (previewKey) {
-      const stale = recheckBeforeSignIn({
-        repo,
-        pr,
-        previewKey,
-        record: loadGate(repo).prs?.[String(pr)],
-      });
+      const stale = recheckBeforeSignIn({ repo, pr, previewKey, record });
       if (stale) return stale;
     }
     const result = await signIn({
       browser,
       login,
-      origin: parsed.origin,
-      pr: usePr,
+      origin: target,
+      pr: previewKey ? pr : null,
       headed: Boolean(headed),
     });
     return { code: 0, out: { signedIn: true, host: result.host, reused: result.reused } };

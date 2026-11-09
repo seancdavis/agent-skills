@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { home, hostAllowed, secretOriginAllowed } from './config.mjs';
+import { home, secretOriginAllowed } from './config.mjs';
 
 const INSTALL_MESSAGE =
   "Playwright isn't installed in ~/.claude/visual-qa. Run `npm install playwright` and `npx playwright install chromium` there.";
@@ -83,6 +83,52 @@ export async function launchBrowser({ headed = false } = {}) {
   return chromium.launch({ headless: !headed });
 }
 
+// True for hosts on the local machine or a private network. IPv4 and IPv6
+// literals are matched by range; names are matched by suffix. DNS rebinding (a
+// public name that resolves to a private address) is not covered.
+export function isPrivateHost(hostname) {
+  let h = String(hostname ?? '')
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
+  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  }
+  if (!h.includes(':')) return false;
+  const mapped = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mapped) {
+    const hi = parseInt(mapped[1], 16);
+    const lo = parseInt(mapped[2], 16);
+    return isPrivateHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+  }
+  if (h === '::1' || h === '::') return true;
+  const first = parseInt(h.split(':')[0] || '0', 16);
+  return (first >= 0xfc00 && first <= 0xfdff) || (first >= 0xfe80 && first <= 0xfebf);
+}
+
+// Aborts every request from the page to a local or private host.
+export async function blockPrivateNetwork(context) {
+  await context.route('**/*', (route) => {
+    let host = '';
+    try {
+      host = new URL(route.request().url()).hostname;
+    } catch {
+      // An unparseable URL has no host to block.
+    }
+    return isPrivateHost(host) ? route.abort('blockedbyclient') : route.continue();
+  });
+}
+
 // Resolves the field first, then checks the page's URL (https, default port,
 // allowed host for this PR), then fills that same handle, so a navigation
 // between the check and the fill cannot redirect the value.
@@ -125,6 +171,11 @@ async function blockedReason(page) {
   return 'Still on the sign-in page after submitting.';
 }
 
+async function needsHuman(page) {
+  if (page.url().includes('/two-factor-auth')) return true;
+  return (await blockedReason(page)) === 'A CAPTCHA is showing.';
+}
+
 async function netlifyFlow(page, login, origin, pr) {
   const { username, password } = readSecrets(login);
   await page.goto(origin, { waitUntil: 'load', timeout: 45000 });
@@ -164,29 +215,26 @@ function saveState(host, state) {
 // signed in; throws a SigninError with code 4 when Sean must finish by hand.
 export async function signIn({ browser, login, origin, pr = null, headed = false }) {
   const host = new URL(origin).hostname;
-  if (!hostAllowed(host, login.hosts, pr)) {
-    throw new SigninError(`${host} is not an allowed sign-in host for this login.`, 2);
+  if (!secretOriginAllowed(origin, login.hosts, pr)) {
+    throw new SigninError(`${host} is not an allowed https sign-in origin for this login.`, 2);
   }
   const file = statePath(host);
   const options = { viewport: { width: 1280, height: 800 } };
   if (existsSync(file)) options.storageState = file;
   const context = await browser.newContext(options);
   try {
+    await blockPrivateNetwork(context);
     const page = await context.newPage();
     if (options.storageState) {
       await page.goto(origin, { waitUntil: 'load', timeout: 45000 });
       await page.waitForTimeout(2000);
       if (await isSignedIn(page)) return { host, reused: true };
     }
-    try {
-      await netlifyFlow(page, login, origin, pr);
-    } catch (err) {
-      // Headed: Sean may finish by hand. A refused host still stops the run.
-      if (!headed || err.code === 2) throw err;
-    }
-    const ok = headed
-      ? await waitForSignedIn(page, HEADED_WAIT_MS)
-      : await waitForSignedIn(page, 3000);
+    // Any guard refusal or flow error ends the run. Only a clean finish that is
+    // waiting on a CAPTCHA or a code lets Sean take over in a visible browser.
+    await netlifyFlow(page, login, origin, pr);
+    const waitMs = headed && (await needsHuman(page)) ? HEADED_WAIT_MS : 3000;
+    const ok = await waitForSignedIn(page, waitMs);
     if (!ok) {
       const reason = await blockedReason(page);
       throw new SigninError('Sign-in did not complete.', 4, { needs: 'sean', reason });
