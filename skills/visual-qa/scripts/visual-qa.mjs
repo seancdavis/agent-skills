@@ -16,14 +16,19 @@ import {
   saveConfig,
   validateConfig,
 } from './config.mjs';
+import { findPreviews } from '../../pr-watch/scripts/watch-pr.mjs';
+import { approvePr, findPreviewCheck, loadGate, readPr, runGate, saveGate } from './gate.mjs';
 import { launchBrowser, playwrightStatus, readSecrets, signIn, SigninError } from './signin.mjs';
 
 const USAGE = `Usage:
   visual-qa.mjs setup --check
+  visual-qa.mjs previews <pr> [--repo owner/name]
   visual-qa.mjs remember-preview <check> --covers <text> [--production <url>] [--login <name>] [--url <template>] [--repo owner/name]
-  visual-qa.mjs approve-author <login>`;
+  visual-qa.mjs approve-author <login>
+  visual-qa.mjs approve-pr <pr> <item>... [--repo owner/name]
+  visual-qa.mjs gate <pr> --preview <check> [--repo owner/name]`;
 
-const VALUED = ['covers', 'production', 'login', 'url', 'repo'];
+const VALUED = ['covers', 'production', 'login', 'url', 'repo', 'preview'];
 const BOOLEAN = ['check'];
 
 class UsageError extends Error {}
@@ -130,7 +135,56 @@ function approveAuthorCommand(args) {
   return { code: 0, out: { approvedAuthors: next.approvedAuthors } };
 }
 
-// Later slices add previews, gate, approve-pr, capture, signin, record, status here.
+function prNumber(args, command) {
+  const pr = args._[0];
+  if (!/^[1-9][0-9]{0,8}$/.test(pr ?? '')) throw new UsageError(`${command} needs a PR number.`);
+  return pr;
+}
+
+function previewsCommand(args) {
+  const pr = prNumber(args, 'previews');
+  if (args._.length > 1) throw new UsageError('previews takes exactly <pr>.');
+  const repo = args.repo ?? defaultRepo();
+  const configured = loadConfig().repos?.[repo]?.previews ?? {};
+  const view = readPr(repo, pr);
+  const list = findPreviews(view.statusCheckRollup).map((p) => ({
+    name: p.name,
+    url: p.url,
+    state: 'success',
+    config: configured[p.name] ?? null,
+  }));
+  // Configured previews that are not ready yet are listed with their state.
+  for (const [name, config] of Object.entries(configured)) {
+    if (list.some((p) => p.name === name)) continue;
+    const check = findPreviewCheck(view.statusCheckRollup, name);
+    if (check.state !== 'missing') list.push({ name, url: check.url, state: check.state, config });
+  }
+  return { code: 0, out: { pr: Number(pr), sha: view.headRefOid, repo, previews: list } };
+}
+
+function approvePrCommand(args) {
+  const pr = prNumber(args, 'approve-pr');
+  const items = args._.slice(1);
+  if (items.length === 0) throw new UsageError('approve-pr needs at least one <item>.');
+  const repo = args.repo ?? defaultRepo();
+  let next;
+  try {
+    next = approvePr(loadGate(repo), pr, items);
+  } catch (err) {
+    return { code: 2, out: { refused: true, reason: err.message } };
+  }
+  saveGate(repo, next);
+  return { code: 0, out: { pr: Number(pr), approvals: next.prs[pr].approvals } };
+}
+
+function gateCommand(args) {
+  const pr = prNumber(args, 'gate');
+  if (args._.length > 1) throw new UsageError('gate takes exactly <pr>.');
+  if (!args.preview) throw new UsageError('--preview is required.');
+  return runGate({ pr, repo: args.repo ?? defaultRepo(), previewKey: args.preview });
+}
+
+// Later slices add capture, signin, record, status here.
 const COMMANDS = {
   setup: (args) => {
     if (!args.check) throw new UsageError('setup needs --check.');
@@ -138,6 +192,9 @@ const COMMANDS = {
   },
   'remember-preview': rememberPreviewCommand,
   'approve-author': approveAuthorCommand,
+  previews: previewsCommand,
+  'approve-pr': approvePrCommand,
+  gate: gateCommand,
 };
 
 async function main() {
