@@ -219,7 +219,9 @@ export async function signIn({ browser, login, origin, pr = null, headed = false
     throw new SigninError(`${host} is not an allowed https sign-in origin for this login.`, 2);
   }
   const file = statePath(host);
-  const options = { viewport: { width: 1280, height: 800 } };
+  // Service workers are blocked: context.route can miss their requests, which
+  // would let a preview get around the private-network block.
+  const options = { viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' };
   if (existsSync(file)) options.storageState = file;
   const context = await browser.newContext(options);
   try {

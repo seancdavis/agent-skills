@@ -202,7 +202,9 @@ async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo,
   if (problem) throw new StepError(problem);
   const host = new URL(origin).hostname;
   const viewport = scenario.viewport ?? { width: 1280, height: 800 };
-  const options = { viewport };
+  // Service workers are blocked: context.route can miss their requests, which
+  // would let a preview get around the private-network block.
+  const options = { viewport, serviceWorkers: 'block' };
   if (login && existsSync(statePath(host))) options.storageState = statePath(host);
   const tmpVideo = join(dir, '.video-tmp');
   if (videoTo) options.recordVideo = { dir: tmpVideo, size: viewport };
@@ -412,7 +414,14 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
         prefix: 'before',
         login,
       });
-      run.before = { url: before.url, shots: before.shots, failedStep: before.failedStep };
+      run.before = {
+        url: before.url,
+        shots: before.shots,
+        failedStep: before.failedStep,
+        consoleErrors: before.consoleErrors,
+        pageErrors: before.pageErrors,
+        messages: before.messages,
+      };
     }
     if (login) {
       const stale = recheckBeforeSignIn({ repo, pr, previewKey, record });
@@ -487,7 +496,14 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
   }
   const run = {
     production: true,
-    before: { url: side.url, shots: side.shots, failedStep: side.failedStep },
+    before: {
+      url: side.url,
+      shots: side.shots,
+      failedStep: side.failedStep,
+      consoleErrors: side.consoleErrors,
+      pageErrors: side.pageErrors,
+      messages: side.messages,
+    },
     demo: videoTo && existsSync(videoTo) ? videoTo : null,
     files: [...side.shots, ...(videoTo && existsSync(videoTo) ? [videoTo] : [])],
   };
