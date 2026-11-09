@@ -8,8 +8,8 @@
 // PR), so a redirect to anywhere else stops the run before anything is typed.
 //
 // Sign-in contexts never record video, and nothing here starts tracing or HAR
-// capture. Saved browser state goes to <home>/state/<host>.json, mode 0600, and a
-// context only loads the state file for its own host.
+// capture. Saved browser state goes to <home>/state/<login>__<host>.json, mode 0600,
+// and a context only loads the state file for its own login and host.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
@@ -54,9 +54,12 @@ export function readOtp(login) {
   return run('op', ['item', 'get', login.item, '--vault', login.vault, '--otp'], env);
 }
 
-export function statePath(host) {
+export function statePath(loginName, host) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(String(loginName ?? ''))) {
+    throw new SigninError('Unsafe login name for a state file.', 2);
+  }
   if (!/^[a-z0-9.-]+$/.test(host)) throw new SigninError('Unsafe host name for a state file.', 2);
-  return join(home(), 'state', `${host}.json`);
+  return join(home(), 'state', `${loginName}__${host}.json`);
 }
 
 function loadPlaywright() {
@@ -78,13 +81,14 @@ export function playwrightStatus() {
 
 // Playwright's debug log can print filled values, so it is turned off first.
 export async function launchBrowser({ headed = false } = {}) {
-  delete process.env.DEBUG;
+  delete process.env.DEBUG; // also cleared at CLI start, before anything loads Playwright
   const { chromium } = loadPlaywright();
   return chromium.launch({ headless: !headed });
 }
 
 // True for hosts on the local machine or a private network. IPv4 and IPv6
-// literals are matched by range; names are matched by suffix. DNS rebinding (a
+// literals are matched by range; names are matched by suffix, and a name with no
+// dot (an intranet short name) counts as private. DNS rebinding (a
 // public name that resolves to a private address) is not covered.
 export function isPrivateHost(hostname) {
   let h = String(hostname ?? '')
@@ -92,6 +96,7 @@ export function isPrivateHost(hostname) {
     .replace(/^\[|\]$/g, '')
     .replace(/\.$/, '');
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
+  if (h !== '' && !h.includes('.') && !h.includes(':')) return true;
   const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (v4) {
     const [a, b] = [Number(v4[1]), Number(v4[2])];
@@ -116,23 +121,33 @@ export function isPrivateHost(hostname) {
   return (first >= 0xfc00 && first <= 0xfdff) || (first >= 0xfe80 && first <= 0xfebf);
 }
 
-// Aborts every request from the page to a local or private host.
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    // An unparseable URL has no host to block.
+    return '';
+  }
+}
+
+// Aborts every request and WebSocket connection from the page to a local or
+// private host.
 export async function blockPrivateNetwork(context) {
   await context.route('**/*', (route) => {
-    let host = '';
-    try {
-      host = new URL(route.request().url()).hostname;
-    } catch {
-      // An unparseable URL has no host to block.
-    }
-    return isPrivateHost(host) ? route.abort('blockedbyclient') : route.continue();
+    return isPrivateHost(hostOf(route.request().url()))
+      ? route.abort('blockedbyclient')
+      : route.continue();
+  });
+  await context.routeWebSocket(/.*/, (ws) => {
+    if (isPrivateHost(hostOf(ws.url()))) return ws.close({ code: 1008, reason: 'blocked' });
+    return ws.connectToServer();
   });
 }
 
 // Resolves the field first, then checks the page's URL (https, default port,
 // allowed host for this PR), then fills that same handle, so a navigation
 // between the check and the fill cannot redirect the value.
-async function guardedFill(page, locator, value, login, pr) {
+export async function guardedFill(page, locator, value, login, pr) {
   let handle;
   try {
     handle = await locator.elementHandle({ timeout: 15000 });
@@ -204,21 +219,21 @@ async function waitForSignedIn(page, ms) {
   return false;
 }
 
-function saveState(host, state) {
-  const path = statePath(host);
+function saveState(loginName, host, state) {
+  const path = statePath(loginName, host);
   mkdirSync(join(home(), 'state'), { recursive: true });
   writeFileSync(path, JSON.stringify(state), { mode: 0o600 });
   chmodSync(path, 0o600);
 }
 
-// Signs in on `origin` and saves the browser state for that host. Returns once
+// Signs in on `origin` and saves the browser state for that login and host. Returns once
 // signed in; throws a SigninError with code 4 when Sean must finish by hand.
-export async function signIn({ browser, login, origin, pr = null, headed = false }) {
+export async function signIn({ browser, login, loginName, origin, pr = null, headed = false }) {
   const host = new URL(origin).hostname;
   if (!secretOriginAllowed(origin, login.hosts, pr)) {
     throw new SigninError(`${host} is not an allowed https sign-in origin for this login.`, 2);
   }
-  const file = statePath(host);
+  const file = statePath(loginName, host);
   // Service workers are blocked: context.route can miss their requests, which
   // would let a preview get around the private-network block.
   const options = { viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' };
@@ -241,7 +256,7 @@ export async function signIn({ browser, login, origin, pr = null, headed = false
       const reason = await blockedReason(page);
       throw new SigninError('Sign-in did not complete.', 4, { needs: 'sean', reason });
     }
-    saveState(host, await context.storageState());
+    saveState(loginName, host, await context.storageState());
     return { host, reused: false };
   } finally {
     await context.close();

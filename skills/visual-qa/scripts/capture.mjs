@@ -3,7 +3,8 @@
 // Why this exists: the session needs before/after screenshots and a demo video
 // without ever recording a sign-in or typing a secret. Sign-in happens in its own
 // unrecorded context (signin.mjs, the only file that types a password); each
-// scenario then runs in a NEW context that loads only its own host's saved state.
+// scenario then runs in a NEW context that loads only the saved state for its
+// own login and host.
 // Nothing here fills or types a secret, and a `fill` on a password-like field
 // fails the step. Page and console text comes from the PR's code, so it is
 // untrusted: it is cut short and reported as data, never acted on.
@@ -195,9 +196,20 @@ async function doStep(page, step, { origin, dir, prefix, shots }) {
   }
 }
 
-// Runs the scenario in a fresh context that loads only `host`'s saved state.
+// Runs the scenario in a fresh context that loads only the saved state for
+// `loginName` on this host (none when the preview has no login).
 // Returns { url, shots, failedStep, consoleErrors, pageErrors, messages, videoError? }.
-async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo, pr = null }) {
+async function runSide({
+  browser,
+  origin,
+  scenario,
+  dir,
+  prefix,
+  login,
+  loginName,
+  videoTo,
+  pr = null,
+}) {
   const problem = originProblem(origin, login, pr);
   if (problem) throw new StepError(problem);
   const host = new URL(origin).hostname;
@@ -205,7 +217,9 @@ async function runSide({ browser, origin, scenario, dir, prefix, login, videoTo,
   // Service workers are blocked: context.route can miss their requests, which
   // would let a preview get around the private-network block.
   const options = { viewport, serviceWorkers: 'block' };
-  if (login && existsSync(statePath(host))) options.storageState = statePath(host);
+  if (login && loginName && existsSync(statePath(loginName, host))) {
+    options.storageState = statePath(loginName, host);
+  }
   const tmpVideo = join(dir, '.video-tmp');
   if (videoTo) options.recordVideo = { dir: tmpVideo, size: viewport };
   mkdirSync(dir, { recursive: true });
@@ -326,8 +340,8 @@ function writeRun(dir, run) {
 // preview check again: the password is typed only if the head is still the
 // commit the gate cleared and the preview check is a success. The seconds
 // between this check and the typing are a race we accept.
-function recheckBeforeSignIn({ repo, pr, previewKey, record }) {
-  const view = readPr(repo, pr);
+export function recheckBeforeSignIn({ repo, pr, previewKey, record }, getPr = readPr) {
+  const view = getPr(repo, pr);
   const head = view.headRefOid;
   if (!record || record.clearedSha !== head || record.preview !== previewKey) {
     return { code: 3, out: { blocked: true, reason: 'head-changed', sha: head } };
@@ -405,7 +419,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
   try {
     if (entry.production) {
       const origin = new URL(entry.production).origin;
-      if (login) await signIn({ browser, login, origin });
+      if (login) await signIn({ browser, login, loginName: entry.login, origin });
       const before = await runSide({
         browser,
         origin,
@@ -413,6 +427,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
         dir: runBase,
         prefix: 'before',
         login,
+        loginName: entry.login,
       });
       run.before = {
         url: before.url,
@@ -426,7 +441,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
     if (login) {
       const stale = recheckBeforeSignIn({ repo, pr, previewKey, record });
       if (stale) return stale;
-      await signIn({ browser, login, origin: previewOrigin, pr });
+      await signIn({ browser, login, loginName: entry.login, origin: previewOrigin, pr });
     }
     const videoTo = demo ? join(runBase, 'demo.webm') : null;
     const after = await runSide({
@@ -436,6 +451,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
       dir: runBase,
       prefix: 'after',
       login,
+      loginName: entry.login,
       videoTo,
       pr,
     });
@@ -481,7 +497,7 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
   let side;
   const videoTo = demo ? join(runBase, 'demo.webm') : null;
   try {
-    if (login) await signIn({ browser, login, origin: target.origin });
+    if (login) await signIn({ browser, login, loginName: target.login, origin: target.origin });
     side = await runSide({
       browser,
       origin: target.origin,
@@ -489,6 +505,7 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
       dir: runBase,
       prefix: 'before',
       login,
+      loginName: target.login,
       videoTo,
     });
   } finally {
@@ -517,12 +534,14 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
 export async function runSigninCommand({ origin, pr, repo, previewKey, headed }) {
   const config = loadConfig();
   let login;
+  let loginName;
   let target;
   let record = null;
   if (previewKey) {
     if (headed) return refused(['--headed is only for production sign-in.']);
     const entry = config.repos?.[repo]?.previews?.[previewKey];
     if (!entry) return refused([`No config entry for ${previewKey}; run remember-preview.`]);
+    loginName = entry.login;
     login = entry.login ? config.logins?.[entry.login] : null;
     if (!login) return refused(['That preview has no configured login.']);
     const view = readPr(repo, pr);
@@ -548,6 +567,7 @@ export async function runSigninCommand({ origin, pr, repo, previewKey, headed })
     const production = productionTarget(config, parsed.origin);
     if (!production) return refused(['--origin must be a configured production site.']);
     if (!production.login) return refused(['That production site has no login.']);
+    loginName = production.login;
     login = config.logins?.[production.login];
     if (!login) return refused(['Login is not configured.']);
     target = production.origin;
@@ -563,6 +583,7 @@ export async function runSigninCommand({ origin, pr, repo, previewKey, headed })
     const result = await signIn({
       browser,
       login,
+      loginName,
       origin: target,
       pr: previewKey ? pr : null,
       headed: Boolean(headed),
@@ -579,28 +600,48 @@ export function latestPath(repo, pr) {
   return join(home(), 'runs', repo.replace('/', '__'), `pr-${pr}`, 'latest.json');
 }
 
-function readRunFiles(run) {
-  if (!run) return [];
+// Reads `run.json` for a --run path inside the runs folder. Returns the parsed
+// record, or null when there is no `run.json` there.
+function readRunJson(run) {
   const base = resolve(run);
   const root = resolve(home(), 'runs') + sep;
   if (!base.startsWith(root)) throw new Error('--run must be inside the visual-qa runs folder.');
   const file = base.endsWith('.json') ? base : join(base, 'run.json');
-  if (!existsSync(file)) return [];
-  const files = JSON.parse(readFileSync(file, 'utf8')).files;
-  return Array.isArray(files) ? files.filter((f) => typeof f === 'string') : [];
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+}
+
+// Why a run may not be recorded as `passed`, or null. It must be the scenario
+// folder's run.json, for the current head commit, not stale, with a demo file.
+export function passedRunProblem(runJson, head, fileExists = existsSync) {
+  if (!runJson) {
+    return 'passed needs --run <run dir>/<scenario name>, a folder holding a run.json.';
+  }
+  if (runJson.sha !== head) return 'That run is for a different commit than the PR head.';
+  if (runJson.stale === true) return 'That run is stale: a push landed during capture.';
+  if (typeof runJson.demo !== 'string' || !fileExists(runJson.demo)) {
+    return 'That run has no demo video; capture with --demo first.';
+  }
+  return null;
 }
 
 export function runRecord({ pr, repo, status, reason, run }) {
   if (!['passed', 'failed', 'skipped'].includes(status)) {
     return refused(['--status must be passed, failed, or skipped.']);
   }
-  let files;
+  let runJson = null;
   try {
-    files = readRunFiles(run);
+    if (run) runJson = readRunJson(run);
   } catch (err) {
     return refused([err.message]);
   }
   const sha = readPr(repo, pr).headRefOid;
+  if (status === 'passed') {
+    const problem = passedRunProblem(runJson, sha);
+    if (problem) return refused([problem]);
+  }
+  const files = Array.isArray(runJson?.files)
+    ? runJson.files.filter((f) => typeof f === 'string')
+    : [];
   const latest = {
     sha,
     status,
