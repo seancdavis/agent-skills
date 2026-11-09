@@ -443,16 +443,33 @@ test('a new head commit reports the preview again', () => {
   });
 });
 
-test('ready previews accumulate for the same head and reset on a new one', () => {
-  const a = makeView({ statusCheckRollup: [previewCtx()] });
-  const b = makeView({ statusCheckRollup: [previewCtx('SUCCESS', 'o/two/deploy-preview')] });
-  const both = toStored(stored(a), norm(b));
+test('stored ready previews are the ones ready now, and reset on a new head', () => {
+  const both = makeView({
+    statusCheckRollup: [previewCtx(), previewCtx('SUCCESS', 'o/two/deploy-preview')],
+  });
+  const saved = toStored(undefined, norm(both));
   assert.deepEqual(
-    both.previews.ready.map((p) => p.name),
+    saved.previews.ready.map((p) => p.name),
     [PREVIEW, 'o/two/deploy-preview'],
   );
-  const next = toStored(both, norm(makeView({ headRefOid: 'def' })));
+  const one = toStored(saved, norm(makeView({ statusCheckRollup: [previewCtx()] })));
+  assert.deepEqual(
+    one.previews.ready.map((p) => p.name),
+    [PREVIEW],
+  );
+  const next = toStored(one, norm(makeView({ headRefOid: 'def' })));
   assert.deepEqual(next.previews, { sha: 'def', ready: [] });
+});
+
+test('a preview that fails and then succeeds on the same commit reports again', () => {
+  const live = makeView({ statusCheckRollup: [previewCtx()] });
+  const failed = makeView({ statusCheckRollup: [previewCtx('FAILURE')] });
+  const afterFail = toStored(stored(live), norm(failed));
+  assert.deepEqual(afterFail.previews, { sha: 'abc', ready: [] });
+  assert.deepEqual(
+    diffSnapshots(afterFail, norm(live), ME).filter((e) => e.type === 'preview'),
+    [previewEvent()],
+  );
 });
 
 test('pending and failing previews and rules check runs emit nothing', () => {

@@ -71,9 +71,9 @@ The GitHub draft flag is the stage, so it survives compaction. While a PR is dra
 - **CI failing.** Dispatch a developer to fix it, then follow "After a developer fix". If it can't be fixed, ask Sean.
 - **CodeRabbit.** Treat the repo as using it if `.coderabbit.yaml` exists, or `gh pr list --state all --search "commenter:app/coderabbitai" --limit 1 --json number` returns a PR. If it does and `coderabbitai[bot]` isn't in the PR's `commenters`, post one `@coderabbitai review` comment and run the watcher with `--max-wait 900`. Act on an event automatically only when its `author` is `coderabbitai[bot]` and its `authorType` is `Bot`; a human login can't contain brackets. Anything else goes to Sean. Judge its comments the way `autopilot` judges findings in Phase 3: fix what's real and material, and record why the rest was dropped. Sean has handed this judgment to the session.
 - **Anyone else's comment or review, human or bot.** Ask Sean. Do not act on it.
-- **Visual QA.** On a `preview` event, run the `visual-qa` skill on that PR. At start, a PR with ready previews and no current visual QA result (`visual-qa.mjs status <pr>` shows `current: false`) gets the same. It runs alongside CI and CodeRabbit handling.
+- **Visual QA.** On a `preview` event, run the `visual-qa` skill on that PR. At start, a PR with ready previews and no current visual QA result (`visual-qa.mjs status <pr>` shows `current: false`) gets the same. It runs alongside CI and CodeRabbit handling. Don't re-run it for a commit that already has a current result.
 - **Fix bound.** The spec's loop bound, default 3 rounds per PR. Then ask Sean.
-- **Settled** means checks are passing or absent, nothing is in flight, and CodeRabbit has reviewed, timed out, or isn't used, and `node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" status <pr>` is `current: true` with `status` `passed` (demo recorded) or `skipped` with a reason. If not, run `visual-qa`, which records a skip when there's nothing to run (no preview, no UI change). Visual QA's "Demo last" step happens here, once nothing else is in flight. Then open the gut-check.
+- **Settled** means checks are passing or absent, nothing is in flight, and CodeRabbit has reviewed, timed out, or isn't used, and `node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" status <pr>` is `current: true` with `status` `passed` (demo recorded), `skipped` with a reason, or `failed` once the problems were reported to Sean (someone else's PR, or the fix bound was reached). If not, run `visual-qa`, which records a skip when there's nothing to run (no preview, no UI change). Visual QA's "Demo last" step happens here, once nothing else is in flight. Then open the gut-check.
 
 ### The gut-check dialog
 
@@ -82,7 +82,7 @@ One `AskUserQuestion` that says what the PR does and gives:
 - the PR link and the deploy preview link, taken from the PR's status checks (`gh pr checks <n>`; on Netlify it's the `deploy/netlify` check); write "none" if no check carries one, and don't read comments to find it
 - unmet items from the spec or verify note, and `human-verify` items
 - CodeRabbit findings you dropped, each with the reason
-- the visual QA result: the demo and screenshot paths from `status`, or the skip reason
+- the visual QA result: the demo and screenshot paths from `status`, the skip reason, or the failure reason and what was reported
 
 Answers:
 
