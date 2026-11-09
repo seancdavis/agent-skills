@@ -53,15 +53,16 @@ Claude will also automatically invoke skills based on context.
 
 ### Alignment & Unattended Runs
 
-| Skill               | Description                                                                                                      |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `grill-me`          | `/grill-me` — pre-execution alignment interview; ends with a log in `docs/sessions/`                             |
-| `preflight`         | `/preflight` — settle a piece of work into a spec, so it can run unattended                                      |
-| `autopilot`         | The unattended run: builds from the spec, audits with read-only Codex, opens a draft PR                          |
-| `autopilot-iterate` | `/autopilot-iterate` — picks an autopilot run back up from your PR review comments                               |
-| `pr-watch`          | `/pr-watch` — stays with open PRs until they merge: fixes CI and CodeRabbit, then asks you about everything else |
-| `research`          | `/research` — broad investigation, with the reading delegated to cheap models                                    |
-| `roster`            | `/roster` — which model each subagent ran on, with generated-token and tool-call volume                          |
+| Skill               | Description                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `grill-me`          | `/grill-me` — pre-execution alignment interview; ends with a log in `docs/sessions/`                                           |
+| `preflight`         | `/preflight` — settle a piece of work into a spec, so it can run unattended                                                    |
+| `autopilot`         | The unattended run: builds from the spec, audits with read-only Codex, opens a draft PR                                        |
+| `autopilot-iterate` | `/autopilot-iterate` — picks an autopilot run back up from your PR review comments                                             |
+| `pr-watch`          | `/pr-watch` — stays with open PRs until they merge: fixes CI and CodeRabbit, then asks you about everything else               |
+| `visual-qa`         | `/visual-qa` — before/after screenshots and a demo of a PR's deploy preview, signed in as a test user only after a safety gate |
+| `research`          | `/research` — broad investigation, with the reading delegated to cheap models                                                  |
+| `roster`            | `/roster` — which model each subagent ran on, with generated-token and tool-call volume                                        |
 
 ### Writing
 

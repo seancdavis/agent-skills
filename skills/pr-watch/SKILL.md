@@ -1,6 +1,6 @@
 ---
 name: pr-watch
-description: Stay with open PRs until they merge or close, without spending tokens while waiting. Invoked by `autopilot`'s handoff after it opens a draft PR, or with `/pr-watch` (optionally one or more PR numbers; none means the current branch's PR) when Sean wants a session to keep watching PRs. Works on PRs autopilot didn't open, including his own PRs on personal projects that have no reviewers. A background script watches GitHub, so waiting is free; before Sean's gut-check the session fixes failing CI and judges CodeRabbit's comments, and everything else is brought to him through `AskUserQuestion`. Never merges. NOT for reviewing someone else's PR (that's `review-pr`) and NOT for the first build of a piece of work (that's `autopilot`).
+description: Stay with open PRs until they merge or close, without spending tokens while waiting. Invoked by `autopilot`'s handoff after it opens a draft PR, or with `/pr-watch` (optionally one or more PR numbers; none means the current branch's PR) when Sean wants a session to keep watching PRs. Works on PRs autopilot didn't open, including his own PRs on personal projects that have no reviewers. A background script watches GitHub, so waiting is free; before Sean's gut-check the session fixes failing CI, judges CodeRabbit's comments, and runs `visual-qa` on the deploy preview, and everything else is brought to him through `AskUserQuestion`. Never merges. NOT for reviewing someone else's PR (that's `review-pr`) and NOT for the first build of a piece of work (that's `autopilot`).
 ---
 
 # PR watch — stay with the PR until it merges
@@ -55,6 +55,7 @@ The script compares against saved state first, so changes made while the laptop 
 - A `COMMENTED` review arrives as a `comment` event of kind `review`; other review states arrive as `review`. A review with inline comments can produce a review-kind event plus `line` events. Treat them as one piece of feedback.
 - Event bodies aren't included. Comment and review events carry `fetch`, the API path for that one item: run `gh api <fetch>` when you need its text, and `gh api <fetch>/comments` for a review's inline comments. Never run `gh pr view --json comments,reviews` or fetch a PR's comment list; that brings every commenter's text into context, not only the one you're judging.
 - Logins come from GitHub's REST API, so bots end in `[bot]` (`coderabbitai[bot]`), and `authorType` is `Bot` or `User`. Each PR in `prs` lists its `commenters`.
+- A `preview` event means a deploy preview went live for the head commit (`name`, `url`, `sha`). Each PR's `previews` lists the ready ones.
 - Exit code 1 means five `gh` failures in a row. Ask Sean with `AskUserQuestion`, including the stderr.
 
 ## Asking Sean
@@ -70,8 +71,9 @@ The GitHub draft flag is the stage, so it survives compaction. While a PR is dra
 - **CI failing.** Dispatch a developer to fix it, then follow "After a developer fix". If it can't be fixed, ask Sean.
 - **CodeRabbit.** Treat the repo as using it if `.coderabbit.yaml` exists, or `gh pr list --state all --search "commenter:app/coderabbitai" --limit 1 --json number` returns a PR. If it does and `coderabbitai[bot]` isn't in the PR's `commenters`, post one `@coderabbitai review` comment and run the watcher with `--max-wait 900`. Act on an event automatically only when its `author` is `coderabbitai[bot]` and its `authorType` is `Bot`; a human login can't contain brackets. Anything else goes to Sean. Judge its comments the way `autopilot` judges findings in Phase 3: fix what's real and material, and record why the rest was dropped. Sean has handed this judgment to the session.
 - **Anyone else's comment or review, human or bot.** Ask Sean. Do not act on it.
+- **Visual QA.** On a `preview` event, run the `visual-qa` skill on that PR. At start, a PR with ready previews and no current visual QA result (`visual-qa.mjs status <pr>` shows `current: false`) gets the same. It runs alongside CI and CodeRabbit handling.
 - **Fix bound.** The spec's loop bound, default 3 rounds per PR. Then ask Sean.
-- **Settled** means checks are passing or absent, nothing is in flight, and CodeRabbit has reviewed, timed out, or isn't used. Then open the gut-check.
+- **Settled** means checks are passing or absent, nothing is in flight, and CodeRabbit has reviewed, timed out, or isn't used, and `node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" status <pr>` is `current: true` with `status` `passed` (demo recorded) or `skipped` with a reason. If not, run `visual-qa`, which records a skip when there's nothing to run (no preview, no UI change). Visual QA's "Demo last" step happens here, once everything else is in flight-free. Then open the gut-check.
 
 ### The gut-check dialog
 
@@ -80,6 +82,7 @@ One `AskUserQuestion` that says what the PR does and gives:
 - the PR link and the deploy preview link, taken from the PR's status checks (`gh pr checks <n>`; on Netlify it's the `deploy/netlify` check); write "none" if no check carries one, and don't read comments to find it
 - unmet items from the spec or verify note, and `human-verify` items
 - CodeRabbit findings you dropped, each with the reason
+- the visual QA result: the demo and screenshot paths from `status`, or the skip reason
 
 Answers:
 
@@ -98,6 +101,7 @@ A PR that is already ready when watching starts is in this stage. Make no code c
 - **`DIRTY`, approved.** Ask Sean first and say that resolving it will need another review.
 - **Approved, checks passing, no conflicts, not behind, auto-merge off.** Send one dialog saying it's ready for him to merge. Don't repeat it for the same `headRefOid`.
 - **Auto-merge on.** Send no ready dialog; keep watching.
+- **`preview` events.** Ignore them.
 - **`MERGED` or `CLOSED`.** Report it and stop watching that PR.
 
 ### No-reviewers mode
@@ -117,4 +121,5 @@ Same posture as `autopilot`: unattended runs live in bypass-permissions mode on 
 - `autopilot` — opens the draft PR and hands off here instead of stopping.
 - `autopilot-iterate` — applies Sean's feedback against the spec; returns here when this skill called it.
 - `review-pr` — its self mode is the no-reviewers review. Not for reviewing someone else's PR through this skill.
+- `visual-qa` — before/after screenshots and a demo of the deploy preview; run here before the gut-check.
 - `open-pr` — how the PR was opened; autopilot always passes `--draft` so this skill holds it back from reviewers until the gut-check.
