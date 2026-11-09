@@ -171,8 +171,8 @@ const isUnknown = (v) => !v || v === 'UNKNOWN';
 
 // Turns a normalized snapshot into what gets saved: the seen comment IDs and
 // the commenters' logins instead of the items, and the previous mergeability if
-// GitHub is still unsure. Ready previews accumulate while the head commit stays
-// the same and start over on a new one.
+// GitHub is still unsure. The stored ready previews are the ones ready now for
+// the head commit, so a preview that fails and then passes again is reported again.
 export function toStored(prev, next) {
   const { items, previews, ...rest } = next;
   for (const key of ['mergeable', 'mergeStateStatus']) {
@@ -183,10 +183,7 @@ export function toStored(prev, next) {
     const ids = items.filter((i) => i.kind === kind).map((i) => i.id);
     seen[kind] = [...new Set([...(prev?.seen?.[kind] ?? []), ...ids])];
   }
-  const ready = readyFor(prev, next.headRefOid).map((p) => ({ ...p }));
-  for (const p of previews ?? []) {
-    if (!ready.some((r) => r.name === p.name)) ready.push(p);
-  }
+  const ready = (previews ?? []).map((p) => ({ ...p }));
   return {
     ...rest,
     commenters: [...new Set(items.map((i) => i.author))],
