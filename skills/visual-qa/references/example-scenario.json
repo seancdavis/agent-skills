@@ -1,0 +1,6 @@
+{
+  "name": "smoke",
+  "start": "/",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [{ "do": "wait", "ms": 1000 }]
+}
