@@ -18,6 +18,13 @@ import {
 } from './config.mjs';
 import { findPreviews } from '../../pr-watch/scripts/watch-pr.mjs';
 import { approvePr, findPreviewCheck, loadGate, readPr, runGate, saveGate } from './gate.mjs';
+import {
+  runCapture,
+  runProductionOnly,
+  runRecord,
+  runSigninCommand,
+  runStatus,
+} from './capture.mjs';
 import { launchBrowser, playwrightStatus, readSecrets, signIn, SigninError } from './signin.mjs';
 
 const USAGE = `Usage:
@@ -26,10 +33,28 @@ const USAGE = `Usage:
   visual-qa.mjs remember-preview <check> --covers <text> [--production <url>] [--login <name>] [--url <template>] [--repo owner/name]
   visual-qa.mjs approve-author <login>
   visual-qa.mjs approve-pr <pr> <item>... [--repo owner/name]
-  visual-qa.mjs gate <pr> --preview <check> [--repo owner/name]`;
+  visual-qa.mjs gate <pr> --preview <check> [--repo owner/name]
+  visual-qa.mjs capture <pr> --preview <check> --scenario <file> [--demo] [--repo owner/name]
+  visual-qa.mjs capture --production-only --url <url> --scenario <file> [--demo]
+  visual-qa.mjs signin --origin <url> [--pr <n>] [--repo owner/name] [--headed]
+  visual-qa.mjs record <pr> --status <passed|failed|skipped> [--reason <text>] [--run <dir>] [--repo owner/name]
+  visual-qa.mjs status <pr> [--repo owner/name]`;
 
-const VALUED = ['covers', 'production', 'login', 'url', 'repo', 'preview'];
-const BOOLEAN = ['check'];
+const VALUED = [
+  'covers',
+  'production',
+  'login',
+  'url',
+  'repo',
+  'preview',
+  'scenario',
+  'origin',
+  'pr',
+  'status',
+  'reason',
+  'run',
+];
+const BOOLEAN = ['check', 'demo', 'production-only', 'headed'];
 
 class UsageError extends Error {}
 
@@ -184,7 +209,58 @@ function gateCommand(args) {
   return runGate({ pr, repo: args.repo ?? defaultRepo(), previewKey: args.preview });
 }
 
-// Later slices add capture, signin, record, status here.
+function captureCommand(args) {
+  if (args['production-only']) {
+    if (args._.length) throw new UsageError('--production-only takes no <pr>.');
+    if (!args.url || !args.scenario) throw new UsageError('--url and --scenario are required.');
+    return runProductionOnly({ url: args.url, scenarioFile: args.scenario, demo: args.demo });
+  }
+  const pr = prNumber(args, 'capture');
+  if (args._.length > 1) throw new UsageError('capture takes exactly <pr>.');
+  if (!args.preview || !args.scenario)
+    throw new UsageError('--preview and --scenario are required.');
+  return runCapture({
+    pr,
+    repo: args.repo ?? defaultRepo(),
+    previewKey: args.preview,
+    scenarioFile: args.scenario,
+    demo: args.demo,
+  });
+}
+
+function signinCommand(args) {
+  if (args._.length) throw new UsageError('signin takes no positional arguments.');
+  if (!args.origin) throw new UsageError('--origin is required.');
+  if (args.pr !== undefined && !/^[1-9][0-9]{0,8}$/.test(args.pr)) {
+    throw new UsageError('--pr must be a PR number.');
+  }
+  return runSigninCommand({
+    origin: args.origin,
+    pr: args.pr,
+    repo: args.pr ? (args.repo ?? defaultRepo()) : args.repo,
+    headed: args.headed,
+  });
+}
+
+function recordCommand(args) {
+  const pr = prNumber(args, 'record');
+  if (args._.length > 1) throw new UsageError('record takes exactly <pr>.');
+  if (!args.status) throw new UsageError('--status is required.');
+  return runRecord({
+    pr,
+    repo: args.repo ?? defaultRepo(),
+    status: args.status,
+    reason: args.reason,
+    run: args.run,
+  });
+}
+
+function statusCommand(args) {
+  const pr = prNumber(args, 'status');
+  if (args._.length > 1) throw new UsageError('status takes exactly <pr>.');
+  return runStatus({ pr, repo: args.repo ?? defaultRepo() });
+}
+
 const COMMANDS = {
   setup: (args) => {
     if (!args.check) throw new UsageError('setup needs --check.');
@@ -195,6 +271,10 @@ const COMMANDS = {
   previews: previewsCommand,
   'approve-pr': approvePrCommand,
   gate: gateCommand,
+  capture: captureCommand,
+  signin: signinCommand,
+  record: recordCommand,
+  status: statusCommand,
 };
 
 async function main() {
