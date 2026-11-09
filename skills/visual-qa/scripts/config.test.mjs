@@ -79,6 +79,17 @@ test('secretOriginAllowed requires https, the default port, and an allowed host'
   assert.equal(secretOriginAllowed('not a url', PATTERNS, null), false);
 });
 
+test('validateConfig restricts login names to lowercase letters, digits, _ and -', () => {
+  for (const bad of ['Demo', 'my.login']) {
+    const c = validConfig();
+    c.logins[bad] = c.logins.demo;
+    assert.match(validateConfig(c).join('\n'), new RegExp(`login ${bad}: name may use only`), bad);
+  }
+  const ok = validConfig();
+  ok.logins.netlify = ok.logins.demo;
+  assert.deepEqual(validateConfig(ok), []);
+});
+
 test('validateConfig requires flow netlify', () => {
   const c = validConfig();
   c.logins.demo.flow = 'github';
