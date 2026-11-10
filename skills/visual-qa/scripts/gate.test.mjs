@@ -412,6 +412,50 @@ test('findOpaqueChanges finds binary files, binary patches, LFS pointers, and su
   ]);
 });
 
+test('findOpaqueChanges finds an LFS update whose version line is unchanged context', () => {
+  const diff = [
+    'diff --git a/big.psd b/big.psd',
+    'index 1111111..2222222 100644',
+    '--- a/big.psd',
+    '+++ b/big.psd',
+    '@@ -1,3 +1,3 @@',
+    ' version https://git-lfs.github.com/spec/v1',
+    '-oid sha256:aaa',
+    '+oid sha256:bbb',
+    '-size 10',
+    '+size 20',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(findOpaqueChanges(diff), ['big.psd']);
+});
+
+test('findOpaqueChanges reads C-quoted file names', () => {
+  const diff = [
+    'diff --git "a/img/tab\\there.png" "b/img/tab\\there.png"',
+    'Binary files "a/img/tab\\there.png" and "b/img/tab\\there.png" differ',
+    'diff --git "a/caf\\303\\251 \\"q\\".psd" "b/caf\\303\\251 \\"q\\".psd"',
+    ' version https://git-lfs.github.com/spec/v1',
+    '-oid sha256:aaa',
+    '+oid sha256:bbb',
+    'diff --git "a/sub mod/\\303\\274" "b/sub mod/\\303\\274"',
+    'new file mode 160000',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(findOpaqueChanges(diff), [
+    'img/tabhere.png', // the tab is a control character, so it is removed
+    'caf\u00e9 "q".psd',
+    'sub mod/\u00fc',
+  ]);
+});
+
+test('findOpaqueChanges reports a marker with no parsable header', () => {
+  assert.deepStrictEqual(findOpaqueChanges('Binary files a and b differ\n'), ['(unparsed path)']);
+  assert.deepStrictEqual(
+    findOpaqueChanges(['diff --git garbled', 'GIT binary patch', ''].join('\n')),
+    ['(unparsed path)'],
+  );
+});
+
 test('findOpaqueChanges returns [] for a normal text diff', () => {
   const diff = [
     'diff --git a/src/a.js b/src/a.js',

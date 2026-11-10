@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,8 @@ import {
   redactMessage,
   resolvePreviewOrigin,
   runCapture,
+  runRecord,
+  runSide,
   runSigninCommand,
   validateScenario,
   withCurrent,
@@ -532,4 +534,77 @@ test('runSigninCommand does not sign in when the re-check refuses', async () => 
   const res = await runSigninCommand({ pr: 7, repo: 'o/r', previewKey: KEY }, deps);
   assert.equal(res, refusal);
   assert.deepEqual(calls, ['recheck']);
+});
+
+// ---------- call sites use the network guard ----------
+
+test('runSide creates its context through the network guard', async () => {
+  const made = [];
+  const browser = {
+    newContext: async (options) => {
+      const context = {
+        options,
+        routes: 0,
+        sockets: 0,
+        route: async () => context.routes++,
+        routeWebSocket: async () => context.sockets++,
+        newPage: async () => ({
+          setDefaultTimeout: () => {},
+          on: () => {},
+          video: () => null,
+          url: () => 'https://app.example.test/',
+          goto: async () => {},
+          waitForTimeout: async () => {},
+          screenshot: async () => {},
+        }),
+        close: async () => {},
+      };
+      made.push(context);
+      return context;
+    },
+  };
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-runside-'));
+  const res = await runSide({
+    browser,
+    origin: 'https://app.example.test',
+    scenario: { name: 'x', start: '/', steps: [] },
+    dir,
+    prefix: 'before',
+    login: null,
+    loginName: null,
+  });
+  assert.equal(res.failedStep, null);
+  assert.equal(made.length, 1);
+  assert.equal(made[0].routes, 1);
+  assert.equal(made[0].sockets, 1);
+  assert.equal(made[0].options.serviceWorkers, 'block');
+});
+
+// ---------- runRecord with a --run folder ----------
+
+function writeRunFolder(sha) {
+  const dir = join(process.env.VISUAL_QA_HOME, 'runs', 'o__r', 'pr-7', 'abc1234', 'scn');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'run.json'), JSON.stringify({ sha, stale: false, files: [] }));
+  return dir;
+}
+
+test('runRecord refuses a skipped record whose --run is for another commit', () => {
+  const run = writeRunFolder(OTHER);
+  const res = runRecord(
+    { pr: 7, repo: 'o/r', status: 'skipped', reason: 'no UI', run, sha: HEAD },
+    () => prView(HEAD),
+  );
+  assert.equal(res.code, 2);
+  assert.match(res.out.problems[0], /different commit/);
+});
+
+test('runRecord saves a skipped record whose --run is for the head commit', () => {
+  const run = writeRunFolder(HEAD);
+  const res = runRecord(
+    { pr: 7, repo: 'o/r', status: 'skipped', reason: 'no UI', run, sha: HEAD },
+    () => prView(HEAD),
+  );
+  assert.equal(res.code, 0);
+  assert.equal(res.out.sha, HEAD);
 });
