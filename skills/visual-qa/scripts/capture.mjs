@@ -10,13 +10,23 @@
 // fails the step. Page and console text comes from the PR's code, so it is
 // untrusted: it is cut short and reported as data, never acted on.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import { home, loadConfig, productionTarget, secretOriginAllowed } from './config.mjs';
 import {
   CAPTION_MAX,
   DemoRecorder,
   isCaption,
+  isViewport,
   loadStyle,
   renderDemo,
   scrollStep,
@@ -59,10 +69,8 @@ export function validateScenario(json) {
   }
   if (!isSafeName(json.name)) problems.push('name must match ^[a-z0-9-]+$.');
   if (!isSitePath(json.start)) problems.push('start must be a path starting with a single "/".');
-  if (json.viewport !== undefined) {
-    const { width, height } = json.viewport ?? {};
-    const ok = (n) => Number.isInteger(n) && n >= 200 && n <= 4000;
-    if (!ok(width) || !ok(height)) problems.push('viewport needs integer width and height.');
+  if (json.viewport !== undefined && !isViewport(json.viewport)) {
+    problems.push('viewport needs integer width and height.');
   }
   const badCaption = `caption must be 1-${CAPTION_MAX} characters on one line.`;
   if (json.caption !== undefined && !isCaption(json.caption)) problems.push(badCaption);
@@ -282,7 +290,14 @@ export async function runSide({
   // The demo's keyframes. A failure here drops the demo, never the step: the
   // caller fails the command when --demo was asked for and no demo exists.
   let recorder = demoDir
-    ? new DemoRecorder({ page, dir: demoDir, viewport, title: host, caption: scenario.caption })
+    ? new DemoRecorder({
+        page,
+        dir: demoDir,
+        viewport,
+        title: host,
+        caption: scenario.caption,
+        timeout: STEP_TIMEOUT_MS,
+      })
     : null;
   const demo = async (call) => {
     if (!recorder) return;
@@ -324,7 +339,9 @@ export async function runSide({
       await demo((r) => r.after(step));
     }
     if (!result.failedStep) await demo((r) => r.finish());
-    else if (recorder) result.demoError = `Step ${result.failedStep.index} failed.`;
+    else if (recorder) {
+      result.demoError = `step ${result.failedStep.index} failed; see ${prefix}.failedStep.`;
+    }
   } finally {
     await context.close();
   }
@@ -373,30 +390,37 @@ export function recheckBeforeSignIn({ repo, pr, previewKey, record }, getPr = re
   return null;
 }
 
-function demoMissing(demoError) {
-  return {
-    code: 1,
-    out: {
-      error: `The demo video was not rendered${demoError ? `: ${demoError}` : '.'}`,
-    },
-  };
+// Exit 1 for --demo with no demo. The run (when there is one) comes along, so a
+// failed step's reason and screenshot are still in the output.
+function demoMissing(demoError, run = null) {
+  const error = `The demo video was not rendered${demoError ? `: ${demoError}` : '.'}`;
+  return { code: 1, out: run ? { error, ...run } : { error } };
 }
 
-// Draws demo.mp4 next to run.json from the keyframes in `<runBase>/demo`.
-// Returns { demo } or { demoError }.
+// Draws demo.mp4 next to run.json from the keyframes in `<runBase>/demo`. It is
+// drawn to a separate file and moved over demo.mp4 only once whole, so a failed
+// re-draw keeps the last good video. Returns { demo } or { demoError }.
 async function renderInto({ browser, runBase, style, render }) {
   const out = join(runBase, 'demo.mp4');
+  const partial = join(runBase, 'demo.partial.mp4');
+  rmSync(partial, { force: true });
   try {
-    await render({ browser, dir: join(runBase, 'demo'), out, style });
+    await render({ browser, dir: join(runBase, 'demo'), out: partial, style });
+    if (!existsSync(partial)) return { demoError: 'ffmpeg wrote no file.' };
+    renameSync(partial, out);
   } catch (err) {
+    rmSync(partial, { force: true });
     return { demoError: firstLine(err) };
   }
-  return existsSync(out) ? { demo: out } : { demoError: 'ffmpeg wrote no file.' };
+  return { demo: out };
 }
 
-// The demo's look: `--style <file>`, else ~/.claude/visual-qa/demo-style.json.
+// The demo's look: `--style <file>` (which must exist), else
+// ~/.claude/visual-qa/demo-style.json when there is one, else the defaults.
 function demoStyle(styleFile) {
-  return loadStyle(styleFile ?? join(home(), 'demo-style.json'));
+  if (styleFile) return loadStyle(styleFile);
+  const saved = join(home(), 'demo-style.json');
+  return loadStyle(existsSync(saved) ? saved : null);
 }
 
 function sideFiles(side) {
@@ -534,7 +558,7 @@ export async function runCapture(
   run.stale = getPr(repo, pr).headRefOid !== head;
   writeRun(runBase, run);
   if (run.stale) return { code: 3, out: run };
-  if (demo && !run.demo) return demoMissing(demoError);
+  if (demo && !run.demo) return demoMissing(demoError, run);
   return { code: 0, out: run };
 }
 
@@ -591,7 +615,7 @@ export async function runProductionOnly({ url, scenarioFile, demo, styleFile }) 
     files: [...side.shots, ...(drawn.demo ? [drawn.demo] : [])],
   };
   writeRun(runBase, run);
-  if (demo && !run.demo) return demoMissing(side.demoError ?? drawn.demoError);
+  if (demo && !run.demo) return demoMissing(side.demoError ?? drawn.demoError, run);
   return { code: 0, out: run };
 }
 
@@ -599,14 +623,15 @@ export async function runProductionOnly({ url, scenarioFile, demo, styleFile }) 
 // pacing. Opens no site: the only page is the local render page.
 export async function runRenderDemo({ run, styleFile }, deps = {}) {
   const { launchBrowser: launch = launchBrowser, renderDemo: render = renderDemo } = deps;
+  let runBase;
   let runJson;
   try {
-    runJson = run ? readRunJson(run) : null;
+    runBase = run ? runFolder(run) : null;
+    runJson = runBase ? readRunFile(runBase) : null;
   } catch (err) {
     return refused([err.message]);
   }
   if (!runJson) return refused(['--run must be a scenario folder holding a run.json.']);
-  const runBase = resolve(run.endsWith('.json') ? join(run, '..') : run);
   if (!existsSync(join(runBase, 'demo', 'timeline.json'))) {
     return refused(['That run has no demo keyframes; capture with --demo first.']);
   }
@@ -707,14 +732,33 @@ export function latestPath(repo, pr) {
   return join(home(), 'runs', repo.replace('/', '__'), `pr-${pr}`, 'latest.json');
 }
 
-// Reads `run.json` for a --run path inside the runs folder. Returns the parsed
-// record, or null when there is no `run.json` there.
+// The real folder a --run path names (a scenario folder, or its run.json), or
+// null when it doesn't exist. Links are resolved before the check, so a link
+// inside the runs folder can't lead outside it.
+function runFolder(run) {
+  const given = resolve(run);
+  const folder = given.endsWith('.json') ? dirname(given) : given;
+  const root = resolve(home(), 'runs');
+  const outside = new Error('--run must be inside the visual-qa runs folder.');
+  if (!folder.startsWith(root + sep)) throw outside;
+  if (!existsSync(folder)) return null;
+  const real = realpathSync(folder);
+  if (!real.startsWith(realpathSync(root) + sep)) throw outside;
+  return real;
+}
+
+// The folder's run.json, or null when there is none. Never read or written
+// through a link.
+function readRunFile(folder) {
+  const file = join(folder, 'run.json');
+  if (!existsSync(file)) return null;
+  if (lstatSync(file).isSymbolicLink()) throw new Error('run.json must not be a link.');
+  return JSON.parse(readFileSync(file, 'utf8'));
+}
+
 function readRunJson(run) {
-  const base = resolve(run);
-  const root = resolve(home(), 'runs') + sep;
-  if (!base.startsWith(root)) throw new Error('--run must be inside the visual-qa runs folder.');
-  const file = base.endsWith('.json') ? base : join(base, 'run.json');
-  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+  const folder = runFolder(run);
+  return folder ? readRunFile(folder) : null;
 }
 
 // Why a run may not be recorded as `passed`, or null. It must be the scenario

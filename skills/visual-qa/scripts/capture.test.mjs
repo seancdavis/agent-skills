@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -292,7 +300,7 @@ test('statePath keys by login and host, and rejects unsafe names', () => {
 
 // ---------- passed records ----------
 
-const goodRun = { sha: HEAD, stale: false, demo: '/runs/demo.webm' };
+const goodRun = { sha: HEAD, stale: false, demo: '/runs/demo.mp4' };
 const exists = () => true;
 
 test('passedRunProblem accepts a current run with a demo that exists', () => {
@@ -583,6 +591,29 @@ test('runCapture --demo exits 1 when the keyframes failed, without rendering', a
   assert.equal(rendered, false);
 });
 
+test('runCapture --demo keeps the failed step and its screenshot in the output', async () => {
+  const failedShot = '/runs/after-02-failed.png';
+  const { deps } = guardDeps({
+    runSide: async ({ origin, scenario, prefix }) => ({
+      url: `${origin}${scenario.start}`,
+      shots: prefix === 'after' ? [failedShot] : [],
+      failedStep: prefix === 'after' ? { index: 2, do: 'click', reason: 'Timeout' } : null,
+      consoleErrors: 0,
+      pageErrors: 0,
+      messages: [],
+      demoError: prefix === 'after' ? 'step 2 failed; see after.failedStep.' : undefined,
+    }),
+  });
+  const res = await runCapture(
+    { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: true },
+    deps,
+  );
+  assert.equal(res.code, 1);
+  assert.match(res.out.error, /not rendered: step 2 failed/);
+  assert.deepEqual(res.out.after.failedStep, { index: 2, do: 'click', reason: 'Timeout' });
+  assert.ok(res.out.files.includes(failedShot));
+});
+
 test('runCapture --demo renders the after side keyframes into demo.mp4', async () => {
   const seen = {};
   const { deps } = guardDeps({
@@ -643,6 +674,19 @@ test('runCapture refuses a bad demo style before launching a browser', async () 
   );
   assert.equal(res.code, 2);
   assert.match(res.out.problems[0], /Unknown style key sparkle/);
+  const missing = await runCapture(
+    {
+      pr: 7,
+      repo: 'o/r',
+      previewKey: KEY,
+      scenarioFile: SCENARIO,
+      demo: true,
+      styleFile: join(tmpdir(), 'no-such-style.json'),
+    },
+    deps,
+  );
+  assert.equal(missing.code, 2);
+  assert.match(missing.out.problems[0], /No style file at/);
   assert.equal(launched, false);
 });
 
@@ -668,7 +712,7 @@ test('runSigninCommand does not sign in when the re-check refuses', async () => 
 
 // ---------- call sites use the network guard ----------
 
-test('runSide creates its context through the network guard', async () => {
+function fakeSideBrowser(page = {}) {
   const made = [];
   const browser = {
     newContext: async (options) => {
@@ -681,11 +725,14 @@ test('runSide creates its context through the network guard', async () => {
         newPage: async () => ({
           setDefaultTimeout: () => {},
           on: () => {},
-          video: () => null,
           url: () => 'https://app.example.test/',
           goto: async () => {},
           waitForTimeout: async () => {},
-          screenshot: async () => {},
+          waitForLoadState: async () => {},
+          screenshot: async ({ path }) => writeFileSync(path, 'png'),
+          mouse: { move: async () => {} },
+          keyboard: { press: async () => {} },
+          ...page,
         }),
         close: async () => {},
       };
@@ -693,6 +740,11 @@ test('runSide creates its context through the network guard', async () => {
       return context;
     },
   };
+  return { browser, made };
+}
+
+test('runSide creates its context through the network guard', async () => {
+  const { browser, made } = fakeSideBrowser();
   const dir = mkdtempSync(join(tmpdir(), 'vqa-runside-'));
   const res = await runSide({
     browser,
@@ -708,6 +760,53 @@ test('runSide creates its context through the network guard', async () => {
   assert.equal(made[0].routes, 1);
   assert.equal(made[0].sockets, 1);
   assert.equal(made[0].options.serviceWorkers, 'block');
+});
+
+test('runSide with a demo folder records keyframes alongside the steps', async () => {
+  const { browser } = fakeSideBrowser();
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-runside-'));
+  const demoDir = join(dir, 'demo');
+  const res = await runSide({
+    browser,
+    origin: 'https://app.example.test',
+    scenario: { name: 'x', start: '/', caption: 'The list', steps: [{ do: 'press', key: 'a' }] },
+    dir,
+    prefix: 'after',
+    demoDir,
+  });
+  assert.equal(res.failedStep, null);
+  assert.equal(res.demoError, undefined);
+  const saved = JSON.parse(readFileSync(join(demoDir, 'timeline.json'), 'utf8'));
+  assert.deepEqual(
+    saved.events.map((e) => e.kind),
+    ['cursor', 'caption', 'show', 'hold', 'show', 'hold', 'hold'],
+  );
+  assert.equal(saved.title, 'app.example.test');
+  assert.ok(existsSync(join(demoDir, '000-start.png')));
+});
+
+test('runSide drops the demo, not the run, when a step fails', async () => {
+  const { browser } = fakeSideBrowser({
+    keyboard: {
+      press: async () => {
+        throw new Error('page crashed');
+      },
+    },
+  });
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-runside-'));
+  const demoDir = join(dir, 'demo');
+  const res = await runSide({
+    browser,
+    origin: 'https://app.example.test',
+    scenario: { name: 'x', start: '/', steps: [{ do: 'press', key: 'a' }] },
+    dir,
+    prefix: 'after',
+    demoDir,
+  });
+  assert.equal(res.failedStep.index, 1);
+  assert.match(res.demoError, /step 1 failed; see after\.failedStep/);
+  assert.ok(res.shots.some((f) => f.endsWith('after-01-failed.png')));
+  assert.equal(existsSync(join(demoDir, 'timeline.json')), false);
 });
 
 // ---------- runRecord with a --run folder ----------
@@ -773,10 +872,31 @@ test('runRenderDemo re-draws from the run keyframes and records the demo in run.
     },
   );
   assert.equal(res.code, 0);
-  assert.equal(rendered, join(run, 'demo'));
+  const real = realpathSync(run);
+  assert.equal(rendered, join(real, 'demo'));
   const saved = JSON.parse(readFileSync(join(run, 'run.json'), 'utf8'));
-  assert.equal(saved.demo, join(run, 'demo.mp4'));
-  assert.deepEqual(saved.files, [join(run, 'demo.mp4')]);
+  assert.equal(saved.demo, join(real, 'demo.mp4'));
+  assert.deepEqual(saved.files, [join(real, 'demo.mp4')]);
+  assert.equal(existsSync(join(run, 'demo.partial.mp4')), false);
+});
+
+test('runRenderDemo keeps the last good demo when a re-draw fails', async () => {
+  const run = writeDemoRun({ keyframes: true, name: 'kept' });
+  writeFileSync(join(run, 'demo.mp4'), 'good');
+  const res = await runRenderDemo(
+    { run },
+    {
+      launchBrowser: async () => ({ close: async () => {} }),
+      renderDemo: async ({ out }) => {
+        writeFileSync(out, 'half');
+        throw new Error('ffmpeg failed (1): broken pipe');
+      },
+    },
+  );
+  assert.equal(res.code, 1);
+  assert.match(res.out.error, /ffmpeg failed/);
+  assert.equal(readFileSync(join(run, 'demo.mp4'), 'utf8'), 'good');
+  assert.equal(existsSync(join(run, 'demo.partial.mp4')), false);
 });
 
 test('runRenderDemo refuses a run with no keyframes or outside the runs folder', async () => {
@@ -788,7 +908,17 @@ test('runRenderDemo refuses a run with no keyframes or outside the runs folder',
   const none = await runRenderDemo({ run: writeDemoRun({ keyframes: false, name: 'bare' }) }, deps);
   assert.equal(none.code, 2);
   assert.match(none.out.problems[0], /no demo keyframes/);
-  const outside = await runRenderDemo({ run: mkdtempSync(join(tmpdir(), 'vqa-elsewhere-')) }, deps);
+  const elsewhere = mkdtempSync(join(tmpdir(), 'vqa-elsewhere-'));
+  const outside = await runRenderDemo({ run: elsewhere }, deps);
   assert.equal(outside.code, 2);
   assert.match(outside.out.problems[0], /inside the visual-qa runs folder/);
+  // A link inside the runs folder that leads outside it is refused too.
+  mkdirSync(join(elsewhere, 'demo'));
+  writeFileSync(join(elsewhere, 'run.json'), '{}');
+  writeFileSync(join(elsewhere, 'demo', 'timeline.json'), '{}');
+  const link = join(process.env.VISUAL_QA_HOME, 'runs', 'o__r', 'pr-7', 'abc1234', 'linked');
+  symlinkSync(elsewhere, link);
+  const linked = await runRenderDemo({ run: link }, deps);
+  assert.equal(linked.code, 2);
+  assert.match(linked.out.problems[0], /inside the visual-qa runs folder/);
 });

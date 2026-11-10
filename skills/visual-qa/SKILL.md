@@ -146,7 +146,7 @@ Record the demo only once nothing else is in flight: CI passing, CodeRabbit done
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" capture <pr> --preview <check> --scenario <file> --demo
    ```
 
-   The demo is drawn, not filmed. While the after side runs, the script takes a few screenshots around each step: before the cursor arrives, with the target hovered, and once the click has settled. It also notes where each target sits. It then draws `demo.mp4` from those: a cursor gliding between targets, a ripple on each click, crossfades, smooth scrolling, a window frame, and the captions. `run.json` gets `demo`, the path to `demo.mp4`, which is also in `files`. The keyframes and `timeline.json` stay in `<scenario dir>/demo/`. Only the after side is drawn, never the sign-in. If any after-side step fails, or the drawing fails, the command exits 1 with an `error` instead of succeeding.
+   The demo is drawn, not filmed. While the after side runs, the script takes a few screenshots around each step: before the cursor arrives, with the target hovered, and once the click has settled. It also notes where each target sits. It then draws `demo.mp4` from those: a cursor gliding between targets, a ripple on each click, crossfades, smooth scrolling, a window frame, and the captions. `run.json` gets `demo`, the path to `demo.mp4`, which is also in `files`. The keyframes and `timeline.json` stay in `<scenario dir>/demo/`. Only the after side is drawn, never the sign-in. If any after-side step fails, or the drawing fails, the command exits 1 with an `error` instead of succeeding. The rest of `run.json` comes with it, so a failed step's `after.failedStep` and its `-failed` screenshot are still there to check.
 
 2. Watch the demo (extract a few frames with `ffmpeg` and read them). If it shows something broken, go back to "Fixes". If only the look or pacing is off, re-draw it from the same keyframes without opening the site again:
 
@@ -154,7 +154,7 @@ Record the demo only once nothing else is in flight: CI passing, CodeRabbit done
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" render-demo --run <run dir>/<scenario name> [--style <file>]
    ```
 
-   The look comes from `--style <file>`, else `~/.claude/visual-qa/demo-style.json` when it exists, else the defaults. `capture --demo` takes `--style` too. `references/demo.md` lists every style key.
+   The look comes from `--style <file>` (which must exist), else `~/.claude/visual-qa/demo-style.json` when it exists, else the defaults. `capture --demo` takes `--style` too. A failed re-draw keeps the last good `demo.mp4`. `references/demo.md` lists every style key.
 
 3. Otherwise record it, passing the scenario's run directory (`<run dir>/<scenario name>`):
 

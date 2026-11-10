@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -13,6 +13,8 @@ import {
   loadStyle,
   mergeStyle,
   planDemo,
+  renderDemo,
+  scrollStep,
   usedFiles,
   validateTimeline,
 } from './demo.mjs';
@@ -49,14 +51,20 @@ test('mergeStyle refuses unknown keys, wrong types, and out-of-range values', ()
     { fps: 24.5 },
     { fps: 120 },
     { quality: 0.2 },
+    // Keys every object has, which a plain `in` check would let through.
+    JSON.parse('{"__proto__": {"padding": 1}}'),
+    { toString: 'x' },
+    { timing: { constructor: 1 } },
   ];
   for (const override of bad) {
     assert.ok(mergeStyle(override).problems.length > 0, JSON.stringify(override));
   }
 });
 
-test('loadStyle uses the defaults when there is no file, and reads one when there is', () => {
-  assert.deepEqual(loadStyle(join(tmpdir(), 'no-such-style.json')).style, DEFAULT_STYLE);
+test('loadStyle uses the defaults with no file, refuses a missing one, and reads one', () => {
+  assert.deepEqual(loadStyle(null), { style: DEFAULT_STYLE, problems: [] });
+  const missing = loadStyle(join(tmpdir(), 'no-such-style.json'));
+  assert.match(missing.problems[0], /No style file at/);
   const file = join(mkdtempSync(join(tmpdir(), 'vqa-style-')), 'style.json');
   writeFileSync(file, JSON.stringify({ captionSpace: 140 }));
   assert.equal(loadStyle(file).style.captionSpace, 140);
@@ -191,17 +199,36 @@ function fakePage() {
   const page = new EventEmitter();
   page.moves = [];
   page.shots = [];
+  page.waits = 0;
+  page.timeouts = [];
+  page.scrolledTo = [];
+  page.disposed = 0;
   page.mouse = { move: async (x, y) => page.moves.push([x, y]) };
   page.screenshot = async ({ path }) => {
     page.shots.push(path);
     writeFileSync(path, 'png');
   };
-  page.waitForLoadState = async () => {};
-  page.waitForTimeout = async () => {};
+  page.waitForLoadState = async () => page.waits++;
+  page.waitForTimeout = async () => page.waits++;
+  // A list scrolled from 0 to 320 to center the target; its middle is (600, 400).
+  const handle = {
+    evaluate: async (_fn, y) => {
+      if (typeof y === 'number') page.scrolledTo.push(y);
+      return { from: 0, to: 320, center: [600, 400] };
+    },
+    dispose: async () => page.disposed++,
+  };
   page.locator = () => ({
     first: () => ({
-      scrollIntoViewIfNeeded: async () => {},
-      boundingBox: async () => ({ x: 90, y: 280, width: 20, height: 40 }),
+      scrollIntoViewIfNeeded: async ({ timeout }) => page.timeouts.push(timeout),
+      boundingBox: async ({ timeout }) => {
+        page.timeouts.push(timeout);
+        return { x: 90, y: 280, width: 20, height: 40 };
+      },
+      elementHandle: async ({ timeout }) => {
+        page.timeouts.push(timeout);
+        return handle;
+      },
     }),
   });
   return page;
@@ -216,9 +243,11 @@ test('DemoRecorder takes idle, hover, and result keyframes around a click', asyn
     viewport: { width: 1200, height: 800 },
     title: 'example.test',
     caption: 'The list',
+    timeout: 1234,
   });
   const click = { do: 'click', target: 'text=Row', caption: 'Opens the row' };
   const click2 = { do: 'click', target: 'text=Back' };
+  const shot = { do: 'screenshot', name: 'done', caption: 'Back on the list' };
   await rec.start();
   await rec.before(click);
   await rec.after(click);
@@ -226,8 +255,11 @@ test('DemoRecorder takes idle, hover, and result keyframes around a click', asyn
   await rec.after({ do: 'wait', ms: 10 });
   await rec.before(click2);
   await rec.after(click2);
-  await rec.before({ do: 'screenshot', name: 'done' });
-  await rec.after({ do: 'screenshot', name: 'done' });
+  // The scenario's screenshot is taken with no extra wait, as on the before side.
+  const waits = page.waits;
+  await rec.before(shot);
+  assert.equal(page.waits, waits);
+  await rec.after(shot);
   const saved = await rec.finish();
 
   const kinds = saved.events.map((e) => (e.kind === 'show' ? `show:${e.file}` : e.kind));
@@ -252,9 +284,14 @@ test('DemoRecorder takes idle, hover, and result keyframes around a click', asyn
     'click',
     'show:005-result.png',
     'hold',
+    'caption',
     'hold',
     'hold',
   ]);
+  assert.equal(saved.events.at(-3).text, 'Back on the list');
+  // The recorder looks for targets as long as it was told to.
+  assert.ok(page.timeouts.length > 0);
+  assert.ok(page.timeouts.every((t) => t === 1234));
   assert.deepEqual(saved.events[5].to, [100, 300]);
   assert.equal(saved.events.find((e) => e.file === '002-result.png').fade, true);
   assert.equal(saved.events.find((e) => e.file === '003-idle.png').fade, undefined);
@@ -277,4 +314,146 @@ test('DemoRecorder keeps keyframe names inside its folder', async () => {
   await rec.start();
   for (const path of page.shots) assert.ok(path.startsWith(dir));
   assert.match(page.shots[0], /000-start\.png$/);
+});
+
+test('scrollStep and DemoRecorder scroll the target to the middle of its list', async () => {
+  const page = fakePage();
+  await scrollStep(page, 'text=Published', 10000);
+  assert.deepEqual(page.scrolledTo, [320]);
+  assert.equal(page.disposed, 1);
+
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-demo-'));
+  const scrolling = fakePage();
+  const rec = new DemoRecorder({ page: scrolling, dir, viewport: { width: 1200, height: 800 } });
+  await rec.start();
+  await rec.before({ do: 'scroll', target: 'text=Published' });
+  const saved = await rec.finish();
+  // 320 px in steps of about 40 px: 8 frames, the last one at the target.
+  assert.deepEqual(scrolling.scrolledTo, [40, 80, 120, 160, 200, 240, 280, 320]);
+  const scroll = saved.events.find((e) => e.kind === 'scroll');
+  assert.equal(scroll.files.length, 8);
+  assert.ok(scroll.files.every((f) => /^\d{3}-scroll\.png$/.test(f)));
+  assert.deepEqual(saved.events.find((e) => e.kind === 'move').to, [600, 400]);
+  assert.equal(scrolling.disposed, 1);
+  assert.deepEqual(validateTimeline(saved), []);
+});
+
+// ---------- rendering ----------
+
+function demoRun() {
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-render-'));
+  writeFileSync(join(dir, 'timeline.json'), JSON.stringify(timeline));
+  for (const file of usedFiles(planDemo(timeline))) writeFileSync(join(dir, file), 'png');
+  return dir;
+}
+
+// A browser whose render page hands back one tiny JPEG per frame asked for.
+function fakeRenderBrowser() {
+  const seen = { routes: [], closed: false, html: null };
+  const page = {
+    setContent: async (html) => {
+      seen.html = html;
+    },
+    evaluate: async (_fn, arg) => {
+      if (Array.isArray(arg) && typeof arg[0] === 'number') {
+        const [from, to] = arg;
+        return Array.from({ length: to - from }, () => 'data:image/jpeg;base64,/9j/');
+      }
+      return undefined;
+    },
+  };
+  const context = {
+    route: async (pattern, handler) => seen.routes.push(handler),
+    routeWebSocket: async () => {},
+    newPage: async () => page,
+    close: async () => {
+      seen.closed = true;
+    },
+  };
+  return { browser: { newContext: async () => context }, seen };
+}
+
+// ffmpeg that takes every frame, or stops with `code` once it has `stopAt` frames.
+function fakeFfmpeg({ stopAt = Infinity, code = 1 } = {}) {
+  const proc = new EventEmitter();
+  proc.frames = 0;
+  proc.killed = false;
+  proc.stderr = new EventEmitter();
+  proc.stdin = new EventEmitter();
+  proc.stdin.write = () => {
+    proc.frames++;
+    if (proc.frames < stopAt) return true;
+    setImmediate(() => {
+      proc.stderr.emit('data', 'Invalid data found when processing input\n');
+      proc.emit('close', code);
+    });
+    return false;
+  };
+  proc.stdin.end = () => setImmediate(() => proc.emit('close', 0));
+  proc.kill = () => {
+    proc.killed = true;
+  };
+  return proc;
+}
+
+test('renderDemo sends every frame to ffmpeg from a page that loads nothing', async () => {
+  const dir = demoRun();
+  const { browser, seen } = fakeRenderBrowser();
+  const proc = fakeFfmpeg();
+  let args;
+  const out = join(dir, 'demo.mp4');
+  const res = await renderDemo(
+    { browser, dir, out },
+    {
+      spawn: (cmd, rest) => {
+        args = [cmd, ...rest];
+        return proc;
+      },
+    },
+  );
+  assert.equal(res.frames, Math.ceil(planDemo(timeline).length * DEFAULT_STYLE.fps));
+  assert.equal(proc.frames, res.frames);
+  assert.equal(args[0], 'ffmpeg');
+  assert.equal(args.at(-1), out);
+  assert.equal(seen.closed, true);
+  // The render page's own route, registered after the network guard's, aborts
+  // even a public request.
+  let aborted = false;
+  seen.routes.at(-1)({
+    request: () => ({ url: () => 'https://example.com/x.png' }),
+    abort: () => {
+      aborted = true;
+    },
+    continue: () => {},
+  });
+  assert.equal(aborted, true);
+});
+
+test('renderDemo fails instead of waiting forever when ffmpeg stops early', async () => {
+  for (const [code, message] of [
+    [1, /ffmpeg failed \(1\): Invalid data/],
+    [0, /stopped before the last frame/],
+  ]) {
+    const dir = demoRun();
+    const { browser, seen } = fakeRenderBrowser();
+    const proc = fakeFfmpeg({ stopAt: 3, code });
+    await assert.rejects(
+      renderDemo({ browser, dir, out: join(dir, 'demo.mp4') }, { spawn: () => proc }),
+      message,
+    );
+    assert.equal(proc.frames, 3);
+    assert.equal(proc.killed, true);
+    assert.equal(seen.closed, true);
+  }
+});
+
+test('renderDemo refuses a run with a missing keyframe before opening a page', async () => {
+  const dir = demoRun();
+  rmSync(join(dir, '002-result.png'));
+  const { browser, seen } = fakeRenderBrowser();
+  await assert.rejects(
+    renderDemo({ browser, dir, out: join(dir, 'demo.mp4') }, { spawn: () => fakeFfmpeg() }),
+    /keyframe is missing: 002-result\.png/,
+  );
+  assert.equal(seen.html, null);
 });
