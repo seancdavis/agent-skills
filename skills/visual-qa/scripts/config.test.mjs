@@ -79,8 +79,8 @@ test('secretOriginAllowed requires https, the default port, and an allowed host'
   assert.equal(secretOriginAllowed('not a url', PATTERNS, null), false);
 });
 
-test('validateConfig restricts login names to lowercase letters, digits, _ and -', () => {
-  for (const bad of ['Demo', 'my.login']) {
+test('validateConfig restricts login names to lowercase letters, digits, _ and - (not leading)', () => {
+  for (const bad of ['Demo', 'my.login', '_x', '-x']) {
     const c = validConfig();
     c.logins[bad] = c.logins.demo;
     assert.match(validateConfig(c).join('\n'), new RegExp(`login ${bad}: name may use only`), bad);

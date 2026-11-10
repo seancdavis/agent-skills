@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { productionTarget } from './config.mjs';
 import {
@@ -9,8 +13,11 @@ import {
   originProblem,
   passedRunProblem,
   recheckBeforeSignIn,
+  recordShaProblem,
   redactMessage,
   resolvePreviewOrigin,
+  runCapture,
+  runSigninCommand,
   validateScenario,
   withCurrent,
 } from './capture.mjs';
@@ -181,6 +188,8 @@ test('isPrivateHost blocks local and private hosts', () => {
     '172.16.0.1',
     '172.31.255.1',
     '192.168.1.1',
+    '100.64.0.1',
+    '100.127.255.254',
     '169.254.169.254',
     '0.0.0.0',
     '::1',
@@ -204,6 +213,8 @@ test('isPrivateHost allows public hosts', () => {
     '172.32.0.1',
     '172.15.0.1',
     '192.169.0.1',
+    '100.63.255.255',
+    '100.128.0.1',
     'locallhost.test',
   ]) {
     assert.equal(isPrivateHost(h), false, h);
@@ -253,6 +264,9 @@ test('statePath keys by login and host, and rejects unsafe names', () => {
   assert.throws(() => statePath('', 'x.test'));
   assert.throws(() => statePath(undefined, 'x.test'));
   assert.throws(() => statePath('acme', 'X/y'));
+  assert.throws(() => statePath('_x', 'x.test'));
+  assert.throws(() => statePath('-x', 'x.test'));
+  assert.throws(() => statePath('Acme', 'x.test'));
 });
 
 // ---------- passed records ----------
@@ -402,4 +416,120 @@ test('blockPrivateNetwork aborts private hosts and continues public ones', async
   await wsHandler(wsPub);
   assert.equal(wsPub.seen.connected, true);
   assert.equal(wsPub.seen.closed, undefined);
+});
+
+// ---------- record sha ----------
+
+test('recordShaProblem needs a 40-char sha that is the current head', () => {
+  const base = { head: HEAD, status: 'skipped', runJson: null };
+  assert.equal(recordShaProblem({ ...base, sha: HEAD }), null);
+  assert.match(recordShaProblem({ ...base, sha: undefined }), /--sha/);
+  assert.match(recordShaProblem({ ...base, sha: 'abc123' }), /--sha/);
+  assert.match(recordShaProblem({ ...base, sha: 'A'.repeat(40) }), /--sha/);
+  assert.match(recordShaProblem({ ...base, sha: OTHER }), /PR moved/);
+});
+
+test('recordShaProblem needs a recorded run to be for the same commit', () => {
+  const args = { sha: HEAD, head: HEAD };
+  assert.equal(recordShaProblem({ ...args, status: 'passed', runJson: { sha: HEAD } }), null);
+  assert.equal(recordShaProblem({ ...args, status: 'failed', runJson: { sha: HEAD } }), null);
+  assert.equal(recordShaProblem({ ...args, status: 'failed', runJson: null }), null);
+  for (const status of ['passed', 'failed']) {
+    assert.match(
+      recordShaProblem({ ...args, status, runJson: { sha: OTHER } }),
+      /different commit/,
+    );
+  }
+});
+
+// ---------- the re-check comes before sign-in ----------
+
+process.env.VISUAL_QA_HOME = mkdtempSync(join(tmpdir(), 'vqa-capture-test-'));
+
+const SCENARIO = fileURLToPath(new URL('../references/example-scenario.json', import.meta.url));
+const PREVIEW_HOST = 'deploy-preview-7--app.example.test';
+const guardConfig = {
+  logins: { acme: { hosts: ['app.example.test', 'deploy-preview-{pr}--app.example.test'] } },
+  repos: {
+    'o/r': {
+      previews: { [KEY]: { login: 'acme', covers: 'x', url: `https://${PREVIEW_HOST}` } },
+    },
+  },
+};
+
+function guardDeps(overrides = {}) {
+  const calls = [];
+  const deps = {
+    loadConfig: () => guardConfig,
+    loadGate: () => ({ prs: { 7: cleared } }),
+    readPr: () => prView(HEAD),
+    launchBrowser: async () => ({ close: async () => {} }),
+    recheck: () => {
+      calls.push('recheck');
+      return null;
+    },
+    signIn: async ({ origin }) => {
+      calls.push(`signIn ${new URL(origin).hostname}`);
+      return { host: new URL(origin).hostname, reused: false };
+    },
+    runSide: async ({ origin, scenario }) => {
+      calls.push('runSide');
+      return {
+        url: `${origin}${scenario.start}`,
+        shots: [],
+        failedStep: null,
+        consoleErrors: 0,
+        pageErrors: 0,
+        messages: [],
+      };
+    },
+    ...overrides,
+  };
+  return { deps, calls };
+}
+
+test('runCapture re-checks before it signs in on a preview', async () => {
+  const { deps, calls } = guardDeps();
+  const res = await runCapture(
+    { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: false },
+    deps,
+  );
+  assert.equal(res.code, 0);
+  assert.deepEqual(calls, ['recheck', `signIn ${PREVIEW_HOST}`, 'runSide']);
+});
+
+test('runCapture does not sign in when the re-check refuses', async () => {
+  const refusal = { code: 3, out: { blocked: true, reason: 'head-changed' } };
+  const { deps, calls } = guardDeps({
+    recheck: () => {
+      calls.push('recheck');
+      return refusal;
+    },
+  });
+  const res = await runCapture(
+    { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: false },
+    deps,
+  );
+  assert.equal(res, refusal);
+  assert.deepEqual(calls, ['recheck']);
+});
+
+test('runSigninCommand re-checks before it signs in on a preview', async () => {
+  const { deps, calls } = guardDeps();
+  const res = await runSigninCommand({ pr: 7, repo: 'o/r', previewKey: KEY }, deps);
+  assert.equal(res.code, 0);
+  assert.deepEqual(calls, ['recheck', `signIn ${PREVIEW_HOST}`]);
+});
+
+test('runSigninCommand does not sign in when the re-check refuses', async () => {
+  const refusal = { code: 3, out: { blocked: true, reason: 'preview-not-ready' } };
+  const { deps, calls } = guardDeps({
+    recheck: () => {
+      calls.push('recheck');
+      return refusal;
+    },
+  });
+  const res = await runSigninCommand({ pr: 7, repo: 'o/r', previewKey: KEY }, deps);
+  assert.equal(res, refusal);
+  assert.deepEqual(calls, ['recheck']);
 });

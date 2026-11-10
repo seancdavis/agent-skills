@@ -12,7 +12,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const HOST_CHARS = /^[a-z0-9.-]+$/;
-const LOGIN_NAME = /^[a-z0-9_-]+$/;
+// One rule for login names, shared with the state-file path in signin.mjs.
+export const LOGIN_NAME = /^[a-z0-9][a-z0-9_-]*$/;
 
 export function home() {
   return process.env.VISUAL_QA_HOME || join(homedir(), '.claude', 'visual-qa');
@@ -56,7 +57,9 @@ export function validateConfig(config) {
   const logins = config?.logins ?? {};
   for (const [name, login] of Object.entries(logins)) {
     if (!LOGIN_NAME.test(name)) {
-      problems.push(`login ${name}: name may use only lowercase letters, digits, "_" and "-".`);
+      problems.push(
+        `login ${name}: name may use only lowercase letters, digits, "_" and "-", and must not start with "_" or "-".`,
+      );
     }
     if (login.flow !== 'netlify') problems.push(`login ${name}: flow must be "netlify".`);
     for (const field of ['keychainService', 'vault', 'item']) {
