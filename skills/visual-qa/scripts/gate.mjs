@@ -96,11 +96,54 @@ export function parseVerdict(text) {
   return m ? m[1].toLowerCase() : 'unreadable';
 }
 
+// Changes whose content Codex cannot read in a text diff: binary files and
+// patches, Git LFS pointers, and submodules. Returns the file paths (untrusted
+// text, control characters removed and cut short).
+export function findOpaqueChanges(diffText) {
+  const paths = [];
+  let current = null;
+  let flagged = false;
+  const flag = () => {
+    if (current === null || flagged) return;
+    flagged = true;
+    if (!paths.includes(current)) paths.push(current);
+  };
+  for (const line of String(diffText ?? '').split('\n')) {
+    const header = /^diff --git a\/.* b\/(.*)$/.exec(line);
+    if (header) {
+      // eslint-disable-next-line no-control-regex
+      current = header[1].replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200);
+      flagged = false;
+      continue;
+    }
+    if (
+      line.startsWith('Binary files ') ||
+      line === 'GIT binary patch' ||
+      /^[-+]version https:\/\/git-lfs\.github\.com\/spec\/v1\s*$/.test(line) ||
+      /^[-+]Subproject commit /.test(line) ||
+      /^(new file mode|deleted file mode|old mode|new mode) 160000$/.test(line) ||
+      /^index [0-9a-f]+\.\.[0-9a-f]+ 160000$/.test(line)
+    ) {
+      flag();
+    }
+  }
+  return paths;
+}
+
 // preview: `{ state }`. authors: `{ unapproved, needsPrApproval, tooManyCommits }`.
 // verdict: 'clear' | 'flagged' | 'unreadable' | null (Codex not run).
-// diffTooLarge: the diff could not be read. A `safety:<head>` approval stands in
-// for a Codex pass on that commit only.
-export function decide({ preview, authors, verdict, diffTooLarge = false, approvals, head }) {
+// diffTooLarge: the diff could not be read. opaque: paths of changes Codex cannot
+// read (see findOpaqueChanges). A `safety:<head>` approval stands in for a Codex
+// pass on that commit only.
+export function decide({
+  preview,
+  authors,
+  verdict,
+  diffTooLarge = false,
+  opaque = [],
+  approvals,
+  head,
+}) {
   const blocked = [];
   if (preview?.state !== 'success') {
     blocked.push({ reason: 'preview-not-ready', state: preview?.state ?? 'missing' });
@@ -115,7 +158,8 @@ export function decide({ preview, authors, verdict, diffTooLarge = false, approv
   if (blocked.length === 0) {
     const safetyApproved = (approvals ?? []).includes(`safety:${head}`);
     if (!safetyApproved) {
-      if (diffTooLarge) blocked.push({ reason: 'diff-too-large' });
+      if (opaque.length) blocked.push({ reason: 'opaque-changes', files: opaque });
+      else if (diffTooLarge) blocked.push({ reason: 'diff-too-large' });
       else if (verdict === 'flagged') blocked.push({ reason: 'safety-flagged', sha: head });
       else if (verdict !== 'clear') blocked.push({ reason: 'safety-unreadable', sha: head });
     }
@@ -253,7 +297,16 @@ export function readDiff(repo, pr) {
   return { diff: res.stdout };
 }
 
-export function runCodex(dir, diff) {
+// `spawn` replaces spawnSync in tests.
+export function runCodex(dir, diff, spawn = spawnSync) {
+  // Codex reads instruction files (such as AGENTS.md) from the repo it runs in, so
+  // a run folder inside a repo could let the PR steer it.
+  const inside = spawn('git', ['-C', resolve(dir), 'rev-parse', '--is-inside-work-tree'], {
+    encoding: 'utf8',
+  });
+  if (!inside.error && inside.status === 0) {
+    throw new Error('The run folder is inside a git repo; Codex must run outside any repo.');
+  }
   const diffPath = resolve(dir, 'safety.diff');
   const promptPath = resolve(dir, 'safety-prompt.md');
   const reportPath = resolve(dir, 'safety.txt');
@@ -267,7 +320,7 @@ export function runCodex(dir, diff) {
     'scripts',
     'codex-audit.mjs',
   );
-  const res = spawnSync('node', [script, '--prompt-file', promptPath], {
+  const res = spawn('node', [script, '--prompt-file', promptPath], {
     // The run folder is outside any git repo, so an instruction file the PR adds
     // (such as AGENTS.md) is never loaded as Codex's own instructions.
     cwd: resolve(dir),
@@ -352,6 +405,7 @@ export function runGate({ pr, repo, previewKey }, deps = {}) {
 
   let verdict = null;
   let diffTooLarge = false;
+  let opaque = [];
   const early = decide({ preview: check, authors, verdict: 'clear', approvals, head });
   const needsCodex = early.pass && !approvals.includes(`safety:${head}`);
   if (needsCodex) {
@@ -362,17 +416,36 @@ export function runGate({ pr, repo, previewKey }, deps = {}) {
       const read = getDiff(repo, pr);
       if (read.tooLarge) diffTooLarge = true;
       else {
-        const result = codex(dir, read.diff);
-        verdict = result.verdict;
-        out.safetyReport = result.reportPath;
+        // Codex would see only a placeholder for opaque changes, so it is not run.
+        opaque = findOpaqueChanges(read.diff);
+        if (opaque.length === 0) {
+          const result = codex(dir, read.diff);
+          verdict = result.verdict;
+          out.safetyReport = result.reportPath;
+        }
       }
     }
   }
-  const result = decide({ preview: check, authors, verdict, diffTooLarge, approvals, head });
+  const result = decide({
+    preview: check,
+    authors,
+    verdict,
+    diffTooLarge,
+    opaque,
+    approvals,
+    head,
+  });
   out.pass = result.pass;
   out.blocked = result.blocked;
   if (verdict) out.verdict = verdict;
   if (result.pass) {
+    // The diff Codex read belongs to `head`. A push during the pass makes it stale.
+    const now = getPr(repo, pr).headRefOid;
+    if (now !== head) {
+      out.pass = false;
+      out.blocked = [{ reason: 'head-changed', sha: now }];
+      return { code: 3, out };
+    }
     gate.prs[String(pr)] = {
       ...record,
       clearedSha: head,

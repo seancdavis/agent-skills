@@ -7,9 +7,10 @@
 // JSON object. Exit codes: 0 done, 1 error, 2 bad usage or refused, 3 blocked,
 // 4 Sean needs to finish sign-in. Secrets are never printed.
 
-// Playwright's debug log can print filled values. Cleared before anything runs;
+// Playwright's debug log and inspector can print or show filled values. Cleared before anything runs;
 // Playwright itself is only loaded later, on demand, by launchBrowser.
 delete process.env.DEBUG;
+delete process.env.PWDEBUG;
 
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -49,7 +50,7 @@ const USAGE = `Usage:
   visual-qa.mjs capture --production-only --url <url> --scenario <file> [--demo]
   visual-qa.mjs signin <pr> --preview <check> [--repo owner/name]
   visual-qa.mjs signin --origin <production-url> [--headed]
-  visual-qa.mjs record <pr> --status <passed|failed|skipped> [--reason <text>] [--run <dir>] [--repo owner/name]
+  visual-qa.mjs record <pr> --status <passed|failed|skipped> --sha <sha> [--reason <text>] [--run <dir>] [--repo owner/name]
   visual-qa.mjs status <pr> [--repo owner/name]`;
 
 const VALUED = [
@@ -64,6 +65,7 @@ const VALUED = [
   'status',
   'reason',
   'run',
+  'sha',
 ];
 const BOOLEAN = ['check', 'demo', 'production-only', 'headed'];
 
@@ -264,12 +266,14 @@ function recordCommand(args) {
   const pr = prNumber(args, 'record');
   if (args._.length > 1) throw new UsageError('record takes exactly <pr>.');
   if (!args.status) throw new UsageError('--status is required.');
+  if (!args.sha) throw new UsageError('--sha is required.');
   return runRecord({
     pr,
     repo: args.repo ?? defaultRepo(),
     status: args.status,
     reason: args.reason,
     run: args.run,
+    sha: args.sha,
   });
 }
 

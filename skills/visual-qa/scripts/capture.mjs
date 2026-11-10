@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve, sep } from 'node:path';
 import { home, loadConfig, productionTarget, secretOriginAllowed } from './config.mjs';
 import { findPreviewCheck, loadGate, previewUrl, readPr, runDir as gateRunDir } from './gate.mjs';
-import { blockPrivateNetwork, isPrivateHost, launchBrowser, signIn, statePath } from './signin.mjs';
+import { isPrivateHost, launchBrowser, newGuardedContext, signIn, statePath } from './signin.mjs';
 
 export { isPrivateHost };
 
@@ -214,9 +214,7 @@ async function runSide({
   if (problem) throw new StepError(problem);
   const host = new URL(origin).hostname;
   const viewport = scenario.viewport ?? { width: 1280, height: 800 };
-  // Service workers are blocked: context.route can miss their requests, which
-  // would let a preview get around the private-network block.
-  const options = { viewport, serviceWorkers: 'block' };
+  const options = { viewport };
   if (login && loginName && existsSync(statePath(loginName, host))) {
     options.storageState = statePath(loginName, host);
   }
@@ -235,8 +233,7 @@ async function runSide({
   const note = (text) => {
     if (result.messages.length < MAX_MESSAGES) result.messages.push(redactMessage(text));
   };
-  const context = await browser.newContext(options);
-  await blockPrivateNetwork(context);
+  const context = await newGuardedContext(browser, options);
   const page = await context.newPage();
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
   page.on('console', (msg) => {
@@ -369,11 +366,21 @@ function sideFiles(side) {
 // ---------- capture commands ----------
 
 // Before/after on a PR: production, then the preview.
-export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
+// `deps` replaces the gh, browser, sign-in, and re-check functions in tests.
+export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, deps = {}) {
+  const {
+    loadConfig: readConfig = loadConfig,
+    readPr: getPr = readPr,
+    loadGate: readGate = loadGate,
+    launchBrowser: launch = launchBrowser,
+    signIn: signInOn = signIn,
+    recheck = recheckBeforeSignIn,
+    runSide: runOneSide = runSide,
+  } = deps;
   const loaded = loadScenario(scenarioFile);
   if (loaded.problems) return refused(loaded.problems);
   const { scenario } = loaded;
-  const config = loadConfig();
+  const config = readConfig();
   const entry = config.repos?.[repo]?.previews?.[previewKey];
   if (!entry) {
     return refused([`No config entry for ${previewKey}; run remember-preview.`]);
@@ -381,9 +388,9 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
   const login = entry.login ? config.logins?.[entry.login] : null;
   if (entry.login && !login) return refused([`Login "${entry.login}" is not configured.`]);
 
-  const view = readPr(repo, pr);
+  const view = getPr(repo, pr);
   const head = view.headRefOid;
-  const record = loadGate(repo).prs?.[String(pr)];
+  const record = readGate(repo).prs?.[String(pr)];
   // The gate check comes before any browser is launched.
   if (!mayTypePassword({ preview: entry, previewKey, record, head })) {
     return { code: 3, out: { blocked: true, reason: 'run gate first', sha: head } };
@@ -415,12 +422,12 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
   };
 
   let videoError;
-  const browser = await launchBrowser();
+  const browser = await launch();
   try {
     if (entry.production) {
       const origin = new URL(entry.production).origin;
-      if (login) await signIn({ browser, login, loginName: entry.login, origin });
-      const before = await runSide({
+      if (login) await signInOn({ browser, login, loginName: entry.login, origin });
+      const before = await runOneSide({
         browser,
         origin,
         scenario,
@@ -439,12 +446,12 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
       };
     }
     if (login) {
-      const stale = recheckBeforeSignIn({ repo, pr, previewKey, record });
+      const stale = recheck({ repo, pr, previewKey, record }, getPr);
       if (stale) return stale;
-      await signIn({ browser, login, loginName: entry.login, origin: previewOrigin, pr });
+      await signInOn({ browser, login, loginName: entry.login, origin: previewOrigin, pr });
     }
     const videoTo = demo ? join(runBase, 'demo.webm') : null;
-    const after = await runSide({
+    const after = await runOneSide({
       browser,
       origin: previewOrigin,
       scenario,
@@ -470,7 +477,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }) {
   }
 
   run.files = [...sideFiles(run.before), ...sideFiles(run.after), ...(run.demo ? [run.demo] : [])];
-  run.stale = readPr(repo, pr).headRefOid !== head;
+  run.stale = getPr(repo, pr).headRefOid !== head;
   writeRun(runBase, run);
   if (run.stale) return { code: 3, out: run };
   if (demo && !run.demo) return demoMissing(videoError);
@@ -531,8 +538,16 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
 
 // Signs in once and saves state. A preview needs the same gate pass as capture and
 // signs in on the gated preview's own URL; `--origin` is for production only.
-export async function runSigninCommand({ origin, pr, repo, previewKey, headed }) {
-  const config = loadConfig();
+export async function runSigninCommand({ origin, pr, repo, previewKey, headed }, deps = {}) {
+  const {
+    loadConfig: readConfig = loadConfig,
+    readPr: getPr = readPr,
+    loadGate: readGate = loadGate,
+    launchBrowser: launch = launchBrowser,
+    signIn: signInOn = signIn,
+    recheck = recheckBeforeSignIn,
+  } = deps;
+  const config = readConfig();
   let login;
   let loginName;
   let target;
@@ -544,9 +559,9 @@ export async function runSigninCommand({ origin, pr, repo, previewKey, headed })
     loginName = entry.login;
     login = entry.login ? config.logins?.[entry.login] : null;
     if (!login) return refused(['That preview has no configured login.']);
-    const view = readPr(repo, pr);
+    const view = getPr(repo, pr);
     const head = view.headRefOid;
-    record = loadGate(repo).prs?.[String(pr)];
+    record = readGate(repo).prs?.[String(pr)];
     if (!mayTypePassword({ preview: entry, previewKey, record, head })) {
       return { code: 3, out: { blocked: true, reason: 'run gate first', sha: head } };
     }
@@ -574,13 +589,13 @@ export async function runSigninCommand({ origin, pr, repo, previewKey, headed })
   }
   const problem = originProblem(target, login, previewKey ? pr : null);
   if (problem) return refused([problem]);
-  const browser = await launchBrowser({ headed: Boolean(headed) });
+  const browser = await launch({ headed: Boolean(headed) });
   try {
     if (previewKey) {
-      const stale = recheckBeforeSignIn({ repo, pr, previewKey, record });
+      const stale = recheck({ repo, pr, previewKey, record }, getPr);
       if (stale) return stale;
     }
-    const result = await signIn({
+    const result = await signInOn({
       browser,
       login,
       loginName,
@@ -624,7 +639,19 @@ export function passedRunProblem(runJson, head, fileExists = existsSync) {
   return null;
 }
 
-export function runRecord({ pr, repo, status, reason, run }) {
+// Why a record may not be saved for `sha`, or null. `sha` is the commit the
+// session based its decision on: it must be the PR's current head, and a run
+// that is recorded (passed, or failed with --run) must be for that same commit.
+export function recordShaProblem({ sha, head, status, runJson }) {
+  if (!/^[0-9a-f]{40}$/.test(String(sha ?? ''))) {
+    return '--sha must be the 40-character commit sha the result was based on.';
+  }
+  if (sha !== head) return 'The PR moved since this result was decided; re-check the head commit.';
+  if (runJson && runJson.sha !== sha) return 'That run is for a different commit than --sha.';
+  return null;
+}
+
+export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr = readPr) {
   if (!['passed', 'failed', 'skipped'].includes(status)) {
     return refused(['--status must be passed, failed, or skipped.']);
   }
@@ -634,7 +661,15 @@ export function runRecord({ pr, repo, status, reason, run }) {
   } catch (err) {
     return refused([err.message]);
   }
-  const sha = readPr(repo, pr).headRefOid;
+  const head = getPr(repo, pr).headRefOid;
+  const shaProblem = recordShaProblem({
+    sha: given,
+    head,
+    status,
+    runJson: status === 'skipped' ? null : runJson,
+  });
+  if (shaProblem) return refused([shaProblem]);
+  const sha = head;
   if (status === 'passed') {
     const problem = passedRunProblem(runJson, sha);
     if (problem) return refused([problem]);

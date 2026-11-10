@@ -2,15 +2,17 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   approvePr,
   classifyAuthors,
   decide,
+  findOpaqueChanges,
   findPreviewCheck,
   listPreviewChecks,
   normalizeApproval,
   parseVerdict,
+  runCodex,
   runGate,
   safetyPrompt,
 } from './gate.mjs';
@@ -322,4 +324,146 @@ test('runGate skips Codex only for the same commit and preview, and reads the wh
   assert.strictEqual(runGate({ pr: 5, repo: 'o/r', previewKey: KEY }, older.deps).code, 0);
   assert.strictEqual(older.calls.diff, 1);
   assert.strictEqual(older.calls.codex, 1);
+});
+
+test('runGate skips Codex for a commit cleared on a different preview', () => {
+  const other = fakes({
+    loadGate: () => ({ prs: { 5: { clearedSha: HEAD, preview: 'acme/docs/deploy-preview' } } }),
+  });
+  assert.strictEqual(runGate({ pr: 5, repo: 'o/r', previewKey: KEY }, other.deps).code, 0);
+  assert.strictEqual(other.calls.codex, 1);
+});
+
+test('runGate blocks opaque changes without running Codex, and a safety approval clears it', () => {
+  const diff = [
+    'diff --git a/logo.png b/logo.png',
+    'Binary files a/logo.png and b/logo.png differ',
+    '',
+  ].join('\n');
+  const { deps, calls } = fakes({ readDiff: () => ({ diff }) });
+  const res = runGate({ pr: 5, repo: 'o/r', previewKey: KEY }, deps);
+  assert.strictEqual(res.code, 3);
+  assert.deepStrictEqual(res.out.blocked, [{ reason: 'opaque-changes', files: ['logo.png'] }]);
+  assert.strictEqual(calls.codex, 0);
+  assert.strictEqual(calls.saved.length, 0);
+  const approved = fakes({
+    readDiff: () => ({ diff }),
+    loadGate: () => ({ prs: { 5: { approvals: [`safety:${HEAD}`] } } }),
+  });
+  assert.strictEqual(runGate({ pr: 5, repo: 'o/r', previewKey: KEY }, approved.deps).code, 0);
+  assert.strictEqual(approved.calls.codex, 0);
+});
+
+test('runGate saves no pass when the head moved during the Codex pass', () => {
+  let reads = 0;
+  const { deps, calls } = fakes({
+    readPr: () => ({
+      headRefOid: reads++ === 0 ? HEAD : OTHER,
+      author: { login: 'alice', is_bot: false },
+      statusCheckRollup: [context('SUCCESS')],
+    }),
+  });
+  const res = runGate({ pr: 5, repo: 'o/r', previewKey: KEY }, deps);
+  assert.strictEqual(res.code, 3);
+  assert.strictEqual(res.out.pass, false);
+  assert.deepStrictEqual(res.out.blocked, [{ reason: 'head-changed', sha: OTHER }]);
+  assert.strictEqual(calls.codex, 1);
+  assert.strictEqual(calls.saved.length, 0);
+});
+
+// ---------- opaque changes ----------
+
+test('findOpaqueChanges finds binary files, binary patches, LFS pointers, and submodules', () => {
+  const diff = [
+    'diff --git a/img/a.png b/img/a.png',
+    'index 1111111..2222222 100644',
+    'Binary files a/img/a.png and b/img/a.png differ',
+    'diff --git a/b.bin b/b.bin',
+    'index 1111111..2222222 100644',
+    'GIT binary patch',
+    'literal 10',
+    'diff --git a/big.psd b/big.psd',
+    'index 1111111..2222222 100644',
+    '--- a/big.psd',
+    '+++ b/big.psd',
+    '@@ -1,3 +1,3 @@',
+    '-version https://git-lfs.github.com/spec/v1',
+    '-oid sha256:aaa',
+    '+version https://git-lfs.github.com/spec/v1',
+    '+oid sha256:bbb',
+    'diff --git a/vendor/lib b/vendor/lib',
+    'index 1111111..2222222 160000',
+    '--- a/vendor/lib',
+    '+++ b/vendor/lib',
+    '@@ -1 +1 @@',
+    '-Subproject commit 1111111111111111111111111111111111111111',
+    '+Subproject commit 2222222222222222222222222222222222222222',
+    'diff --git a/mod b/mod',
+    'new file mode 160000',
+    'index 0000000..3333333',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(findOpaqueChanges(diff), [
+    'img/a.png',
+    'b.bin',
+    'big.psd',
+    'vendor/lib',
+    'mod',
+  ]);
+});
+
+test('findOpaqueChanges returns [] for a normal text diff', () => {
+  const diff = [
+    'diff --git a/src/a.js b/src/a.js',
+    'index 1111111..2222222 100644',
+    '--- a/src/a.js',
+    '+++ b/src/a.js',
+    '@@ -1 +1 @@',
+    '-const a = 1;',
+    '+const a = 2;',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(findOpaqueChanges(diff), []);
+  assert.deepStrictEqual(findOpaqueChanges(''), []);
+  assert.deepStrictEqual(findOpaqueChanges(undefined), []);
+});
+
+test('decide: opaque changes block, and a safety:<sha> approval clears them', () => {
+  const base = { preview: ready, authors: noAuthorIssues, verdict: null, head: HEAD };
+  const blocked = decide({ ...base, approvals: [], opaque: ['a.png'] });
+  assert.deepStrictEqual(blocked.blocked, [{ reason: 'opaque-changes', files: ['a.png'] }]);
+  assert.strictEqual(
+    decide({ ...base, approvals: [`safety:${HEAD}`], opaque: ['a.png'] }).pass,
+    true,
+  );
+  assert.strictEqual(
+    decide({ ...base, approvals: [`safety:${OTHER}`], opaque: ['a.png'] }).pass,
+    false,
+  );
+});
+
+// ---------- runCodex ----------
+
+test('runCodex spawns Codex from the run folder, and not at all inside a repo', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-codex-test-'));
+  const calls = [];
+  const outside = (cmd, args, opts) => {
+    calls.push({ cmd, args, opts });
+    return cmd === 'git' ? { status: 128 } : { status: 0, stdout: 'ok\nVERDICT: CLEAR' };
+  };
+  const res = runCodex(dir, 'diff text', outside);
+  assert.strictEqual(res.verdict, 'clear');
+  const codex = calls.find((c) => c.cmd === 'node');
+  assert.strictEqual(codex.opts.cwd, resolve(dir));
+
+  const insideCalls = [];
+  const inside = (cmd, args, opts) => {
+    insideCalls.push({ cmd, args, opts });
+    return { status: 0, stdout: 'true\n' };
+  };
+  assert.throws(() => runCodex(dir, 'diff text', inside), /outside any repo/);
+  assert.deepStrictEqual(
+    insideCalls.map((c) => c.cmd),
+    ['git'],
+  );
 });

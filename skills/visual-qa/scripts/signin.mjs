@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { home, secretOriginAllowed } from './config.mjs';
+import { home, LOGIN_NAME, secretOriginAllowed } from './config.mjs';
 
 const INSTALL_MESSAGE =
   "Playwright isn't installed in ~/.claude/visual-qa. Run `npm install playwright` and `npx playwright install chromium` there.";
@@ -55,7 +55,7 @@ export function readOtp(login) {
 }
 
 export function statePath(loginName, host) {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(String(loginName ?? ''))) {
+  if (!LOGIN_NAME.test(String(loginName ?? ''))) {
     throw new SigninError('Unsafe login name for a state file.', 2);
   }
   if (!/^[a-z0-9.-]+$/.test(host)) throw new SigninError('Unsafe host name for a state file.', 2);
@@ -79,11 +79,18 @@ export function playwrightStatus() {
   }
 }
 
-// Playwright's debug log can print filled values, so it is turned off first.
+// Playwright's debug log and inspector (PWDEBUG) can show filled values, so
+// both are turned off first.
 export async function launchBrowser({ headed = false } = {}) {
   delete process.env.DEBUG; // also cleared at CLI start, before anything loads Playwright
+  delete process.env.PWDEBUG;
   const { chromium } = loadPlaywright();
-  return chromium.launch({ headless: !headed });
+  return chromium.launch({
+    headless: !headed,
+    // WebRTC can open direct UDP connections that context.route never sees, which
+    // would get around the private-network block. This keeps it on the proxy path.
+    args: ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
+  });
 }
 
 // True for hosts on the local machine or a private network. IPv4 and IPv6
@@ -104,6 +111,7 @@ export function isPrivateHost(hostname) {
       a === 0 ||
       a === 10 ||
       a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168)
@@ -142,6 +150,20 @@ export async function blockPrivateNetwork(context) {
     if (isPrivateHost(hostOf(ws.url()))) return ws.close({ code: 1008, reason: 'blocked' });
     return ws.connectToServer();
   });
+}
+
+// Every browser context goes through here, so none can skip the network block.
+// Service workers are blocked too: context.route can miss their requests, which
+// would let a preview get around the private-network block.
+export async function newGuardedContext(browser, options = {}) {
+  const context = await browser.newContext({ ...options, serviceWorkers: 'block' });
+  try {
+    await blockPrivateNetwork(context);
+  } catch (err) {
+    await context.close().catch(() => {});
+    throw err;
+  }
+  return context;
 }
 
 // Resolves the field first, then checks the page's URL (https, default port,
@@ -234,13 +256,10 @@ export async function signIn({ browser, login, loginName, origin, pr = null, hea
     throw new SigninError(`${host} is not an allowed https sign-in origin for this login.`, 2);
   }
   const file = statePath(loginName, host);
-  // Service workers are blocked: context.route can miss their requests, which
-  // would let a preview get around the private-network block.
-  const options = { viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' };
+  const options = { viewport: { width: 1280, height: 800 } };
   if (existsSync(file)) options.storageState = file;
-  const context = await browser.newContext(options);
+  const context = await newGuardedContext(browser, options);
   try {
-    await blockPrivateNetwork(context);
     const page = await context.newPage();
     if (options.storageState) {
       await page.goto(origin, { waitUntil: 'load', timeout: 45000 });
