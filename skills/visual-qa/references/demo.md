@@ -8,16 +8,18 @@ The recorder runs inside the after side's guarded context, after sign-in, alongs
 
 - **`start`**: the start page, with the mouse parked off the page at (-1, -1) so nothing is hovered.
 - **`hover`**: before a `click` or `fill`, the target is scrolled into view and its box is read. The mouse moves to the box's center, and after 150 ms the hover state is captured. The box's center is where the drawn cursor goes.
-- **`result`**: after a `click` or `fill`, once the page settles. That means the load event, any `wait` or `waitFor` steps that follow, and then 800 ms more. The mouse is still on the target, so the clicked row still looks hovered, as it would for a person.
+- **`result`**: after a `click` or `fill`, once the page settles. That means the load event, any `wait` or `waitFor` steps that follow, and then 800 ms more. The mouse is still on the target, so the clicked row still looks hovered, as it would for a person. A `screenshot` step is taken before this wait, at the same moment as on the before side, so `--demo` never changes what the scenario's screenshots show.
 - **`idle`**: just before the cursor moves on, the mouse is parked again and the page is captured with nothing hovered. In the video, the hover ends the moment the cursor leaves.
 - **`changed`**: after a `press`, `goto`, `wait`, or `waitFor` that wasn't part of a click, the settled page fades in.
 - **`scroll`**: a `scroll` step finds the list (or page) that holds its target. It works out where the target sits in the middle, then scrolls there in 8 to 30 steps of about 40 px, with one screenshot each. The drawn cursor rests on the middle of that list while it scrolls.
+
+The recorder looks for each target as long as the step does (10 s), so a slow element the step still finds doesn't drop the demo.
 
 The keyframes and `timeline.json` (the events, in order) are written to `<scenario dir>/demo/`. A failed step on the after side means there is no demo, because the video would show a broken flow.
 
 ## How the video is drawn
 
-`renderDemo` turns the timeline into timed tracks (`planDemo`): screens with crossfades, cursor moves, clicks, captions, and scrolls. It then draws each frame on a canvas in a new Playwright page, where every request is aborted. Keyframes arrive as data URLs read from the run folder, and captions and the window title are drawn as canvas text, never as HTML. Frames go to ffmpeg as JPEGs and come out as H.264 `demo.mp4`.
+`renderDemo` turns the timeline into timed tracks (`planDemo`): screens with crossfades, cursor moves, clicks, captions, and scrolls. It then draws each frame on a canvas in a new Playwright page, where every request is aborted. Keyframes arrive as data URLs read from the run folder, and captions and the window title are drawn as canvas text, never as HTML. Frames go to ffmpeg as JPEGs and come out as H.264 `demo.mp4`. The video is written to `demo.partial.mp4` first and moved over `demo.mp4` only when it's whole, so a failed re-draw keeps the last good demo. If ffmpeg stops partway, the command fails with ffmpeg's message.
 
 What it draws:
 
@@ -68,7 +70,7 @@ What it draws:
 
 ## Changing the look
 
-Put a JSON file of overrides in `~/.claude/visual-qa/demo-style.json` (used by every `capture --demo` and `render-demo`), or pass `--style <file>`. Then re-draw an existing run without opening the site again:
+Put a JSON file of overrides in `~/.claude/visual-qa/demo-style.json` (used by every `capture --demo` and `render-demo`), or pass `--style <file>`. A `--style` file must exist, and `capture` takes `--style` only with `--demo`; either mistake is refused (exit 2). Then re-draw an existing run without opening the site again:
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" render-demo --run <run dir>/<scenario name> --style my-style.json
@@ -76,29 +78,29 @@ node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" render-demo 
 
 Only these keys are accepted, with the same types. An unknown key or a wrong type is refused (exit 2). Numbers are seconds or pixels.
 
-| Key                                    | Default                  | What it is                                      |
-| -------------------------------------- | ------------------------ | ----------------------------------------------- |
-| `fps`                                  | `30`                     | Frames per second, 10-60                        |
-| `quality`                              | `0.95`                   | JPEG quality of each frame before encoding      |
-| `padding`                              | `80`                     | Space around the window                         |
-| `captionSpace`                         | `110`                    | Space under the window, when there are captions |
-| `background`                           | `["#0a262e", "#020a0e"]` | Top and bottom of the background gradient       |
-| `window.bar`                           | `34`                     | Title bar height; `0` hides the bar             |
-| `window.barColor`, `window.titleColor` | `#162227`, `#8c9ea4`     | Title bar and title text colors                 |
-| `window.radius`, `window.shadow`       | `12`, `28`               | Corner radius and shadow blur; `0` for none     |
-| `caption.size`, `caption.color`        | `30`, `#ecf4f5`          | Caption size and color                          |
-| `caption.font`                         | system UI font           | Any CSS font family list                        |
-| `cursor.scale`                         | `1.45`                   | Cursor size                                     |
-| `ripple`                               | `#32e6e2`                | Click ripple color                              |
-| `timing.start`                         | `1.2`                    | Hold on the start page                          |
-| `timing.moveBase`, `timing.movePerPx`  | `0.45`, `0.00067`        | Cursor travel time: base plus per pixel         |
-| `timing.hover`                         | `0.35`                   | Pause on a target before clicking               |
-| `timing.click`                         | `0.12`                   | Press before the page responds                  |
-| `timing.fade`                          | `0.35`                   | Crossfade into a click's result                 |
-| `timing.afterClick`                    | `1.9`                    | Hold on a click's result                        |
-| `timing.changed`                       | `0.6`                    | Hold after a key press, navigation, or wait     |
-| `timing.scroll`                        | `1.3`                    | Length of each scroll                           |
-| `timing.screenshot`, `timing.end`      | `1.5`, `2`               | Hold at a `screenshot` step, and at the end     |
+| Key                                    | Default                  | What it is                                        |
+| -------------------------------------- | ------------------------ | ------------------------------------------------- |
+| `fps`                                  | `30`                     | Frames per second, 10-60                          |
+| `quality`                              | `0.95`                   | JPEG quality of each frame before encoding, 0.5-1 |
+| `padding`                              | `80`                     | Space around the window                           |
+| `captionSpace`                         | `110`                    | Space under the window, when there are captions   |
+| `background`                           | `["#0a262e", "#020a0e"]` | Top and bottom of the background gradient         |
+| `window.bar`                           | `34`                     | Title bar height; `0` hides the bar               |
+| `window.barColor`, `window.titleColor` | `#162227`, `#8c9ea4`     | Title bar and title text colors                   |
+| `window.radius`, `window.shadow`       | `12`, `28`               | Corner radius and shadow blur; `0` for none       |
+| `caption.size`, `caption.color`        | `30`, `#ecf4f5`          | Caption size and color                            |
+| `caption.font`                         | system UI font           | Any CSS font family list                          |
+| `cursor.scale`                         | `1.45`                   | Cursor size                                       |
+| `ripple`                               | `#32e6e2`                | Click ripple color                                |
+| `timing.start`                         | `1.2`                    | Hold on the start page                            |
+| `timing.moveBase`, `timing.movePerPx`  | `0.45`, `0.00067`        | Cursor travel time: base plus per pixel           |
+| `timing.hover`                         | `0.35`                   | Pause on a target before clicking                 |
+| `timing.click`                         | `0.12`                   | Press before the page responds                    |
+| `timing.fade`                          | `0.35`                   | Crossfade into a click's result                   |
+| `timing.afterClick`                    | `1.9`                    | Hold on a click's result                          |
+| `timing.changed`                       | `0.6`                    | Hold after a key press, navigation, or wait       |
+| `timing.scroll`                        | `1.3`                    | Length of each scroll                             |
+| `timing.screenshot`, `timing.end`      | `1.5`, `2`               | Hold at a `screenshot` step, and at the end       |
 
 For example, a lighter frame with slower pacing:
 

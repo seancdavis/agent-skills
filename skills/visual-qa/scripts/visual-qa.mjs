@@ -146,13 +146,19 @@ async function setupCheck() {
     }
   }
   if (browser) await browser.close();
-  const ok =
+  return { code: setupPassed(report) ? 0 : report.needsSean ? 4 : 1, out: report };
+}
+
+// Setup passes only when everything a capture needs is there, ffmpeg included,
+// and every configured login has its secrets and signs in.
+export function setupPassed(report) {
+  return Boolean(
     report.playwright &&
     report.chromium &&
     report.ffmpeg &&
     report.config &&
-    names.every((n) => report.logins[n].secrets && report.logins[n].signedIn);
-  return { code: ok ? 0 : report.needsSean ? 4 : 1, out: report };
+    Object.values(report.logins).every((login) => login.secrets && login.signedIn),
+  );
 }
 
 function rememberPreviewCommand(args) {

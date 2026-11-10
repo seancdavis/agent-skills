@@ -20,7 +20,10 @@ import { join } from 'node:path';
 import { newGuardedContext } from './signin.mjs';
 
 export const CAPTION_MAX = 90;
-const RECORD_TIMEOUT_MS = 5000;
+// How long the recorder looks for a step's target. capture passes its own step
+// timeout, so a slow element that the step would still find never drops the demo.
+const TARGET_TIMEOUT_MS = 10000;
+const LOAD_SETTLE_MS = 5000;
 const SETTLE_MS = 800;
 const HOVER_MS = 150;
 const SCROLL_FRAME_PX = 40;
@@ -84,7 +87,7 @@ export function mergeStyle(override, base = DEFAULT_STYLE) {
     const out = { ...into };
     for (const [key, value] of Object.entries(over)) {
       const at = path ? `${path}.${key}` : key;
-      if (!(key in into)) {
+      if (!Object.hasOwn(into, key)) {
         problems.push(`Unknown style key ${at}.`);
         continue;
       }
@@ -114,9 +117,11 @@ export function mergeStyle(override, base = DEFAULT_STYLE) {
   return { style, problems };
 }
 
-// Reads the style override file, if any. Returns { style, problems }.
+// Reads a style override file. No file means the defaults; a file that was
+// named but isn't there is a problem. Returns { style, problems }.
 export function loadStyle(file) {
-  if (!file || !existsSync(file)) return mergeStyle({});
+  if (!file) return mergeStyle({});
+  if (!existsSync(file)) return { style: DEFAULT_STYLE, problems: [`No style file at ${file}.`] };
   let json;
   try {
     json = JSON.parse(readFileSync(file, 'utf8'));
@@ -136,6 +141,12 @@ export function isCaption(text) {
   );
 }
 
+// Viewport bounds shared by scenarios and timelines.
+export function isViewport(v) {
+  const ok = (n) => Number.isInteger(n) && n >= 200 && n <= 4000;
+  return isPlainObject(v) && ok(v.width) && ok(v.height);
+}
+
 const isPoint = (p) =>
   Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === 'number' && Number.isFinite(n));
 
@@ -143,9 +154,7 @@ const isPoint = (p) =>
 export function validateTimeline(json) {
   if (!isPlainObject(json)) return ['The timeline must be a JSON object.'];
   const problems = [];
-  const { width, height } = json.viewport ?? {};
-  const ok = (n) => Number.isInteger(n) && n >= 200 && n <= 4000;
-  if (!ok(width) || !ok(height)) problems.push('viewport needs integer width and height.');
+  if (!isViewport(json.viewport)) problems.push('viewport needs integer width and height.');
   if (json.title !== undefined && (typeof json.title !== 'string' || json.title.length > 200)) {
     problems.push('title must be a short string.');
   }
@@ -315,8 +324,9 @@ export async function scrollStep(page, target, timeout) {
 // `before(step)` and `after(step)` around each step, `finish()` at the end.
 // Errors here are the demo's, not the step's: runSide keeps going without it.
 export class DemoRecorder {
-  constructor({ page, dir, viewport, title, caption }) {
+  constructor({ page, dir, viewport, title, caption, timeout = TARGET_TIMEOUT_MS }) {
     this.page = page;
+    this.timeout = timeout;
     this.dir = dir;
     this.viewport = viewport;
     this.title = title;
@@ -365,7 +375,7 @@ export class DemoRecorder {
   // The keyframe owed from the last step, once its page has settled.
   async settle() {
     if (!this.pending) return;
-    await this.page.waitForLoadState('load', { timeout: RECORD_TIMEOUT_MS }).catch(() => {});
+    await this.page.waitForLoadState('load', { timeout: LOAD_SETTLE_MS }).catch(() => {});
     await this.page.waitForTimeout(SETTLE_MS);
     const label = this.pending;
     this.pending = null;
@@ -380,9 +390,11 @@ export class DemoRecorder {
     this.events.push({ kind: 'show', file: await this.shot('idle') });
   }
 
+  // Nothing here waits before a `screenshot` step: the scenario's screenshot is
+  // taken at the same moment as on the before side, and the demo catches up after.
   async before(step) {
-    const moves = ['click', 'fill', 'scroll'].includes(step.do);
-    if (moves || step.do === 'screenshot') await this.settle();
+    if (step.do === 'screenshot') return;
+    if (['click', 'fill', 'scroll'].includes(step.do)) await this.settle();
     if (step.caption) this.events.push({ kind: 'caption', text: step.caption });
     if (step.do === 'click' || step.do === 'fill') await this.point(step.target);
     else if (step.do === 'scroll') await this.scroll(step.target);
@@ -391,14 +403,18 @@ export class DemoRecorder {
   async after(step) {
     if (step.do === 'click' || step.do === 'fill') this.pending = 'result';
     else if (['press', 'goto', 'wait', 'waitFor'].includes(step.do)) this.pending ??= 'changed';
-    else if (step.do === 'screenshot') this.events.push({ kind: 'hold', for: 'screenshot' });
+    else if (step.do === 'screenshot') {
+      await this.settle();
+      if (step.caption) this.events.push({ kind: 'caption', text: step.caption });
+      this.events.push({ kind: 'hold', for: 'screenshot' });
+    }
   }
 
   async point(target) {
     const locator = this.page.locator(target).first();
-    await locator.scrollIntoViewIfNeeded({ timeout: RECORD_TIMEOUT_MS });
+    await locator.scrollIntoViewIfNeeded({ timeout: this.timeout });
     await this.leave();
-    const box = await locator.boundingBox({ timeout: RECORD_TIMEOUT_MS });
+    const box = await locator.boundingBox({ timeout: this.timeout });
     if (!box) return;
     const at = this.clamp([box.x + box.width / 2, box.y + box.height / 2]);
     this.events.push({ kind: 'move', to: at });
@@ -412,10 +428,7 @@ export class DemoRecorder {
 
   async scroll(target) {
     await this.leave();
-    const handle = await this.page
-      .locator(target)
-      .first()
-      .elementHandle({ timeout: RECORD_TIMEOUT_MS });
+    const handle = await this.page.locator(target).first().elementHandle({ timeout: this.timeout });
     try {
       const plan = await handle.evaluate(scrollRoot, null);
       const distance = plan.to - plan.from;
@@ -705,6 +718,7 @@ function startFfmpeg(out, fps, run) {
   proc.stderr?.on('data', (d) => {
     stderr = (stderr + d).slice(-500);
   });
+  // A write after ffmpeg exits fails with EPIPE; `stopped` carries the reason.
   proc.stdin.on('error', () => {});
   const done = new Promise((resolve, reject) => {
     proc.on('error', (err) =>
@@ -722,14 +736,19 @@ function startFfmpeg(out, fps, run) {
         : reject(new Error(`ffmpeg failed (${code}): ${stderr.split('\n')[0].slice(0, 200)}`)),
     );
   });
-  return { proc, done };
+  // Rejects as soon as ffmpeg is gone, even with code 0, since frames are still
+  // coming. Handled here so an early exit is never an unhandled rejection.
+  const stopped = done.then(() => {
+    throw new Error('ffmpeg stopped before the last frame.');
+  });
+  stopped.catch(() => {});
+  return { proc, done, stopped };
 }
 
-function write(stream, buffer) {
-  return new Promise((resolve) => {
-    if (stream.write(buffer)) resolve();
-    else stream.once('drain', resolve);
-  });
+// Waits until ffmpeg can take more, or rejects if it stopped.
+function write({ proc, stopped }, buffer) {
+  if (proc.stdin.write(buffer)) return undefined;
+  return Promise.race([new Promise((resolve) => proc.stdin.once('drain', resolve)), stopped]);
 }
 
 // Draws the demo from `dir`'s keyframes and timeline into `out` (an MP4).
@@ -770,7 +789,7 @@ export async function renderDemo({ browser, dir, out, style = DEFAULT_STYLE }, d
         [i, Math.min(total, i + BATCH), style.fps, style.quality],
       );
       for (const url of urls) {
-        await write(ffmpeg.proc.stdin, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
+        await write(ffmpeg, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
       }
     }
     ffmpeg.proc.stdin.end();
