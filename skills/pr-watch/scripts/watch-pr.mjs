@@ -13,6 +13,10 @@
 //
 // Each comment and review event names the API path for that one item, so the
 // session can read exactly what it was woken for and nothing else on the PR.
+//
+// A deploy preview that goes live for the head commit is reported once as a
+// `preview` event (name, url, sha); a new head commit reports again. Each PR's
+// ready previews for the head commit are also listed in the printed `prs` view.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -105,6 +109,24 @@ export function summarizeChecks(rollup) {
   return { checks: pending ? 'pending' : 'passing', failed: [] };
 }
 
+// Deploy previews that passed: a status context named `<site>/deploy-preview`,
+// or the `deploy/netlify` check run. Netlify's `Header rules - x`, `Pages
+// changed - x`, and `Redirect rules - x` check runs are not previews.
+export function findPreviews(rollup) {
+  const previews = [];
+  for (const item of rollup ?? []) {
+    const isContext = item.__typename === 'StatusContext' || 'context' in item;
+    if (isContext) {
+      if (item.state === 'SUCCESS' && item.context?.endsWith('/deploy-preview')) {
+        previews.push({ name: item.context, url: item.targetUrl ?? '' });
+      }
+    } else if (item.name === 'deploy/netlify' && item.conclusion === 'SUCCESS') {
+      previews.push({ name: item.name, url: item.detailsUrl ?? '' });
+    }
+  }
+  return previews;
+}
+
 // `rest` holds the REST lists for each kind. REST gives the numeric ID that one
 // item can be fetched by, and a user type that tells a bot from a person.
 // Comment bodies are deliberately dropped.
@@ -139,6 +161,7 @@ export function normalize(view, rest, repo) {
     autoMerge: view.autoMergeRequest != null,
     headRefOid: view.headRefOid,
     ...summarizeChecks(view.statusCheckRollup),
+    previews: findPreviews(view.statusCheckRollup),
     items,
   };
 }
@@ -148,9 +171,10 @@ const isUnknown = (v) => !v || v === 'UNKNOWN';
 
 // Turns a normalized snapshot into what gets saved: the seen comment IDs and
 // the commenters' logins instead of the items, and the previous mergeability if
-// GitHub is still unsure.
+// GitHub is still unsure. The stored ready previews are the ones ready now for
+// the head commit, so a preview that fails and then passes again is reported again.
 export function toStored(prev, next) {
-  const { items, ...rest } = next;
+  const { items, previews, ...rest } = next;
   for (const key of ['mergeable', 'mergeStateStatus']) {
     if (isUnknown(rest[key]) && prev?.[key]) rest[key] = prev[key];
   }
@@ -159,8 +183,21 @@ export function toStored(prev, next) {
     const ids = items.filter((i) => i.kind === kind).map((i) => i.id);
     seen[kind] = [...new Set([...(prev?.seen?.[kind] ?? []), ...ids])];
   }
-  return { ...rest, commenters: [...new Set(items.map((i) => i.author))], seen };
+  const ready = (previews ?? []).map((p) => ({ ...p }));
+  return {
+    ...rest,
+    commenters: [...new Set(items.map((i) => i.author))],
+    seen,
+    previews: { sha: next.headRefOid, ready },
+  };
 }
+
+// The previews already reported for `sha` in a stored snapshot; old state files
+// have none.
+const readyFor = (stored, sha) =>
+  stored?.previews?.sha === sha && Array.isArray(stored.previews.ready)
+    ? stored.previews.ready
+    : [];
 
 // prev is a stored snapshot (or undefined for a first poll), next a normalized one.
 export function diffSnapshots(prev, next, selfLogin) {
@@ -177,6 +214,13 @@ export function diffSnapshots(prev, next, selfLogin) {
       events.push({ pr, type: 'review', ...who, state: i.state });
     } else {
       events.push({ pr, type: 'comment', kind: i.kind, ...who, association: i.association });
+    }
+  }
+
+  const known = readyFor(prev, next.headRefOid);
+  for (const p of next.previews) {
+    if (!known.some((k) => k.name === p.name)) {
+      events.push({ pr, type: 'preview', name: p.name, url: p.url, sha: next.headRefOid });
     }
   }
 
@@ -222,6 +266,7 @@ export function publicView(entry) {
     autoMerge: s.autoMerge,
     headRefOid: s.headRefOid,
     commenters: s.commenters ?? [],
+    previews: readyFor(s, s.headRefOid).map(({ name, url }) => ({ name, url })),
   };
 }
 
