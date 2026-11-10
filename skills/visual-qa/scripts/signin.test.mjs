@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { newGuardedContext, signIn, SigninError } from './signin.mjs';
+import { newGuardedContext, signIn, SigninError, statePath } from './signin.mjs';
 
 process.env.VISUAL_QA_HOME = mkdtempSync(join(tmpdir(), 'vqa-signin-test-'));
 
@@ -86,4 +86,50 @@ test('signIn goes on to create a guarded context for an allowed origin', async (
   );
   assert.equal(seen.length, 1);
   assert.equal(seen[0].serviceWorkers, 'block');
+});
+
+// A context that records how it was set up and can drive a signed-in page, so
+// signIn finishes without a network or a secret.
+function guardCheckBrowser() {
+  const made = [];
+  const browser = {
+    newContext: async (options) => {
+      const context = {
+        options,
+        routes: 0,
+        sockets: 0,
+        route: async () => context.routes++,
+        routeWebSocket: async () => context.sockets++,
+        newPage: async () => ({
+          url: () => 'https://app.example.test/',
+          goto: async () => {},
+          waitForTimeout: async () => {},
+          locator: () => ({ count: async () => 0 }),
+          getByRole: () => ({ count: async () => 0 }),
+        }),
+        close: async () => {},
+      };
+      made.push(context);
+      return context;
+    },
+  };
+  return { browser, made };
+}
+
+test('signIn creates its context through the network guard', async () => {
+  const file = statePath('acme', 'app.example.test');
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, '{}');
+  const { browser, made } = guardCheckBrowser();
+  const res = await signIn({
+    browser,
+    login,
+    loginName: 'acme',
+    origin: 'https://app.example.test',
+  });
+  assert.equal(res.reused, true);
+  assert.equal(made.length, 1);
+  assert.equal(made[0].routes, 1);
+  assert.equal(made[0].sockets, 1);
+  assert.equal(made[0].options.serviceWorkers, 'block');
 });

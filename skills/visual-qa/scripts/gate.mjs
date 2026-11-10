@@ -96,30 +96,63 @@ export function parseVerdict(text) {
   return m ? m[1].toLowerCase() : 'unreadable';
 }
 
+// Decodes the body of a C-quoted git path (quotes already removed): \t, \", \\
+// and similar escapes, and octal \NNN bytes (UTF-8).
+function unquoteGitPath(body) {
+  const simple = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, '"': 34, '\\': 92 };
+  const bytes = [];
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch !== '\\') {
+      bytes.push(...Buffer.from(ch));
+      continue;
+    }
+    const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8) & 255);
+      i += octal[0].length;
+    } else if (i + 1 < body.length) {
+      i++;
+      bytes.push(simple[body[i]] ?? body.charCodeAt(i));
+    }
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+const UNPARSED_PATH = '(unparsed path)';
+
 // Changes whose content Codex cannot read in a text diff: binary files and
 // patches, Git LFS pointers, and submodules. Returns the file paths (untrusted
-// text, control characters removed and cut short).
+// text, control characters removed and cut short). A marker whose file header
+// cannot be parsed is still reported, as "(unparsed path)", so this never
+// returns [] when a marker is present.
 export function findOpaqueChanges(diffText) {
   const paths = [];
   let current = null;
   let flagged = false;
   const flag = () => {
-    if (current === null || flagged) return;
+    if (flagged) return;
     flagged = true;
-    if (!paths.includes(current)) paths.push(current);
+    const path = current ?? UNPARSED_PATH;
+    if (!paths.includes(path)) paths.push(path);
   };
   for (const line of String(diffText ?? '').split('\n')) {
-    const header = /^diff --git a\/.* b\/(.*)$/.exec(line);
-    if (header) {
+    if (line.startsWith('diff --git ')) {
+      const quoted = /"b\/((?:[^"\\]|\\.)*)"$/.exec(line);
+      const plain = /^diff --git a\/.* b\/(.*)$/.exec(line);
+      let name = null;
+      if (quoted) name = unquoteGitPath(quoted[1]);
+      else if (plain) name = plain[1];
       // eslint-disable-next-line no-control-regex
-      current = header[1].replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200);
+      current = name === null ? null : name.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200);
       flagged = false;
       continue;
     }
     if (
       line.startsWith('Binary files ') ||
       line === 'GIT binary patch' ||
-      /^[-+]version https:\/\/git-lfs\.github\.com\/spec\/v1\s*$/.test(line) ||
+      // The pointer's version line is unchanged context when only oid and size change.
+      /^[-+ ]version https:\/\/git-lfs\.github\.com\/spec\/v1\s*$/.test(line) ||
       /^[-+]Subproject commit /.test(line) ||
       /^(new file mode|deleted file mode|old mode|new mode) 160000$/.test(line) ||
       /^index [0-9a-f]+\.\.[0-9a-f]+ 160000$/.test(line)

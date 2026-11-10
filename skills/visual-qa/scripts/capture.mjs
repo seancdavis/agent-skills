@@ -199,7 +199,7 @@ async function doStep(page, step, { origin, dir, prefix, shots }) {
 // Runs the scenario in a fresh context that loads only the saved state for
 // `loginName` on this host (none when the preview has no login).
 // Returns { url, shots, failedStep, consoleErrors, pageErrors, messages, videoError? }.
-async function runSide({
+export async function runSide({
   browser,
   origin,
   scenario,
@@ -666,7 +666,7 @@ export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr =
     sha: given,
     head,
     status,
-    runJson: status === 'skipped' ? null : runJson,
+    runJson,
   });
   if (shaProblem) return refused([shaProblem]);
   const sha = head;
