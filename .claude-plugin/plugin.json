@@ -1,7 +1,7 @@
 {
   "name": "seancdavis-skills",
   "description": "Skills for how work gets done with Claude Code: alignment interviews, unattended build-and-audit runs, opening and reviewing PRs, broad research, and writing in your own voice.",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "author": {
     "name": "Sean C Davis"
   },
