@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.10.1] - 2026-11-10
+
+### Changed
+
+- `visual-qa` draws its demo video from screenshots instead of filming a hidden
+  browser: a visible cursor, a pulse on each click, smooth fades and scrolling,
+  a window frame, and sharp text.
+- Scenarios can add captions and a `scroll` step to the demo.
+- `render-demo` redraws a run's demo with a new look or pacing without visiting
+  the site again.
+- `visual-qa` now needs ffmpeg, and `setup --check` says so.
+
 ## [0.10.0] - 2026-11-10
 
 ### Added
