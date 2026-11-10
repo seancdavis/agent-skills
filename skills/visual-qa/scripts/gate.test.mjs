@@ -20,6 +20,7 @@ import {
 const KEY = 'acme/site/deploy-preview';
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
+const BASE = 'c'.repeat(40);
 
 const context = (state, context = KEY) => ({
   __typename: 'StatusContext',
@@ -250,20 +251,22 @@ const config = {
 };
 
 function fakes(overrides = {}) {
-  const calls = { codex: 0, diff: 0, saved: [] };
+  const calls = { codex: 0, diff: 0, diffArgs: [], saved: [] };
   const deps = {
     loadConfig: () => config,
     loadGate: () => ({ prs: {} }),
     saveGate: (repo, gate) => calls.saved.push({ repo, gate }),
     readPr: () => ({
+      baseRefOid: BASE,
       headRefOid: HEAD,
       author: { login: 'alice', is_bot: false },
       statusCheckRollup: [context('SUCCESS')],
     }),
     readCommitCount: () => 1,
     readCommits: () => [human('alice')],
-    readDiff: () => {
+    readDiff: (...args) => {
       calls.diff++;
+      calls.diffArgs.push(args);
       return { diff: 'diff text' };
     },
     runCodex: () => {
@@ -280,6 +283,7 @@ test('runGate saves clearedSha and the preview on a pass', () => {
   const res = runGate({ pr: 5, repo: 'o/r', previewKey: KEY }, deps);
   assert.strictEqual(res.code, 0);
   assert.strictEqual(calls.codex, 1);
+  assert.deepStrictEqual(calls.diffArgs, [['o/r', BASE, HEAD]]);
   assert.strictEqual(calls.saved.length, 1);
   const record = calls.saved[0].gate.prs['5'];
   assert.strictEqual(record.clearedSha, HEAD);
@@ -486,6 +490,45 @@ test('decide: opaque changes block, and a safety:<sha> approval clears them', ()
   );
 });
 
+// ---------- more opaque changes ----------
+
+test('findOpaqueChanges finds an LFS update with only oid and size lines', () => {
+  const diff = [
+    'diff --git a/big.psd b/big.psd',
+    'index 1111111..2222222 100644',
+    '--- a/big.psd',
+    '+++ b/big.psd',
+    '@@ -5,3 +5,3 @@',
+    `-oid sha256:${'a'.repeat(64)}`,
+    `+oid sha256:${'b'.repeat(64)}`,
+    '-size 10',
+    '+size 20',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(findOpaqueChanges(diff), ['big.psd']);
+});
+
+test('findOpaqueChanges finds new symlinks and mode changes to one, not plain renames', () => {
+  const diff = [
+    'diff --git a/link b/link',
+    'new file mode 120000',
+    'index 0000000..3333333',
+    '--- /dev/null',
+    '+++ b/link',
+    '@@ -0,0 +1 @@',
+    '+../secret',
+    'diff --git a/was-file b/was-file',
+    'old mode 100644',
+    'new mode 120000',
+    'diff --git a/old.txt b/new.txt',
+    'similarity index 100%',
+    'rename from old.txt',
+    'rename to new.txt',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(findOpaqueChanges(diff), ['link', 'was-file']);
+});
+
 // ---------- runCodex ----------
 
 test('runCodex spawns Codex from the run folder, and not at all inside a repo', () => {
@@ -493,7 +536,9 @@ test('runCodex spawns Codex from the run folder, and not at all inside a repo', 
   const calls = [];
   const outside = (cmd, args, opts) => {
     calls.push({ cmd, args, opts });
-    return cmd === 'git' ? { status: 128 } : { status: 0, stdout: 'ok\nVERDICT: CLEAR' };
+    return cmd === 'git'
+      ? { status: 128, stderr: 'fatal: not a git repository (or any parent)' }
+      : { status: 0, stdout: 'ok\nVERDICT: CLEAR' };
   };
   const res = runCodex(dir, 'diff text', outside);
   assert.strictEqual(res.verdict, 'clear');
@@ -510,4 +555,23 @@ test('runCodex spawns Codex from the run folder, and not at all inside a repo', 
     insideCalls.map((c) => c.cmd),
     ['git'],
   );
+});
+
+test('runCodex refuses unless git confirms the folder is outside a repo', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-codex-test-'));
+  const cases = [
+    { status: 0, stdout: 'true\n' },
+    { error: new Error('spawn git ENOENT'), status: null },
+    { status: 128, stderr: 'fatal: detected dubious ownership in repository' },
+  ];
+  for (const gitResult of cases) {
+    const calls = [];
+    const spawn = (cmd) => {
+      calls.push(cmd);
+      return gitResult;
+    };
+    assert.throws(() => runCodex(dir, 'diff text', spawn), /repo/);
+    assert.deepStrictEqual(calls, ['git']);
+  }
+  assert.throws(() => runCodex(dir, 'diff', () => ({ error: new Error('x') })), /Couldn't confirm/);
 });

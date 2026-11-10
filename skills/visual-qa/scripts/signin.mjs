@@ -81,11 +81,15 @@ export function playwrightStatus() {
 
 // Playwright's debug log and inspector (PWDEBUG) can show filled values, so
 // both are turned off first.
-export async function launchBrowser({ headed = false } = {}) {
+export async function launchBrowser({ headed = false, launcher } = {}) {
   delete process.env.DEBUG; // also cleared at CLI start, before anything loads Playwright
   delete process.env.PWDEBUG;
-  const { chromium } = loadPlaywright();
-  return chromium.launch({
+  let launch = launcher;
+  if (!launch) {
+    const { chromium } = loadPlaywright();
+    launch = (options) => chromium.launch(options);
+  }
+  return launch({
     headless: !headed,
     // WebRTC can open direct UDP connections that context.route never sees, which
     // would get around the private-network block. This keeps it on the proxy path.

@@ -640,9 +640,9 @@ export function passedRunProblem(runJson, head, fileExists = existsSync) {
 }
 
 // Why a record may not be saved for `sha`, or null. `sha` is the commit the
-// session based its decision on: it must be the PR's current head, and a run
-// that is recorded (passed, or failed with --run) must be for that same commit.
-export function recordShaProblem({ sha, head, status, runJson }) {
+// session based its decision on: it must be the PR's current head, and when
+// --run is given (any status) that run must be for the same commit.
+export function recordShaProblem({ sha, head, runJson }) {
   if (!/^[0-9a-f]{40}$/.test(String(sha ?? ''))) {
     return '--sha must be the 40-character commit sha the result was based on.';
   }
@@ -665,7 +665,6 @@ export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr =
   const shaProblem = recordShaProblem({
     sha: given,
     head,
-    status,
     runJson,
   });
   if (shaProblem) return refused([shaProblem]);
