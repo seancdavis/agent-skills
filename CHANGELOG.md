@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.10.0] - 2026-11-10
+
+### Added
+
+- `visual-qa` screenshots a PR's deploy preview next to production, gets real
+  breakage fixed, and records a short demo. When the preview needs a signed-in
+  user, a dedicated test account signs in only after a safety check passes on
+  the PR's latest commit.
+- Unit tests run in CI on every PR.
+
+### Changed
+
+- `pr-watch` tells you when a deploy preview goes live, and runs `visual-qa`
+  before your gut-check.
+- `pr-watch` fetches only the comments an event names, and `autopilot-iterate`
+  works only from the comments you answered about.
+
 ## [0.9.1] - 2026-11-08
 
 ### Changed
