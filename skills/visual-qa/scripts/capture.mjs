@@ -4,14 +4,33 @@
 // without ever recording a sign-in or typing a secret. Sign-in happens in its own
 // unrecorded context (signin.mjs, the only file that types a password); each
 // scenario then runs in a NEW context that loads only the saved state for its
-// own login and host.
+// own login and host. The demo is drawn from keyframes taken in that context
+// (demo.mjs), so it never shows a sign-in either.
 // Nothing here fills or types a secret, and a `fill` on a password-like field
 // fails the step. Page and console text comes from the PR's code, so it is
 // untrusted: it is cut short and reported as data, never acted on.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import { home, loadConfig, productionTarget, secretOriginAllowed } from './config.mjs';
+import {
+  CAPTION_MAX,
+  DemoRecorder,
+  isCaption,
+  isViewport,
+  loadStyle,
+  renderDemo,
+  scrollStep,
+} from './demo.mjs';
 import { findPreviewCheck, loadGate, previewUrl, readPr, runDir as gateRunDir } from './gate.mjs';
 import { isPrivateHost, launchBrowser, newGuardedContext, signIn, statePath } from './signin.mjs';
 
@@ -23,7 +42,7 @@ const MAX_STEPS = 100;
 const MAX_MESSAGES = 5;
 const MAX_MESSAGE_CHARS = 200;
 const NAME = /^[a-z0-9-]+$/;
-const STEP_KINDS = ['click', 'fill', 'press', 'waitFor', 'goto', 'wait', 'screenshot'];
+const STEP_KINDS = ['click', 'fill', 'press', 'waitFor', 'goto', 'wait', 'screenshot', 'scroll'];
 const SECRET_AUTOCOMPLETE = ['current-password', 'new-password', 'one-time-code'];
 
 // ---------- pure logic ----------
@@ -50,18 +69,21 @@ export function validateScenario(json) {
   }
   if (!isSafeName(json.name)) problems.push('name must match ^[a-z0-9-]+$.');
   if (!isSitePath(json.start)) problems.push('start must be a path starting with a single "/".');
-  if (json.viewport !== undefined) {
-    const { width, height } = json.viewport ?? {};
-    const ok = (n) => Number.isInteger(n) && n >= 200 && n <= 4000;
-    if (!ok(width) || !ok(height)) problems.push('viewport needs integer width and height.');
+  if (json.viewport !== undefined && !isViewport(json.viewport)) {
+    problems.push('viewport needs integer width and height.');
   }
+  const badCaption = `caption must be 1-${CAPTION_MAX} characters on one line.`;
+  if (json.caption !== undefined && !isCaption(json.caption)) problems.push(badCaption);
   if (!Array.isArray(json.steps)) return [...problems, 'steps must be a list.'];
   if (json.steps.length > MAX_STEPS) problems.push(`at most ${MAX_STEPS} steps.`);
   json.steps.forEach((step, i) => {
     const at = `step ${i}`;
     if (!step || typeof step !== 'object') return problems.push(`${at}: must be an object.`);
     if (!STEP_KINDS.includes(step.do)) return problems.push(`${at}: unknown "do".`);
-    const needsTarget = ['click', 'fill', 'waitFor'].includes(step.do);
+    if (step.caption !== undefined && !isCaption(step.caption)) {
+      problems.push(`${at}: ${badCaption}`);
+    }
+    const needsTarget = ['click', 'fill', 'waitFor', 'scroll'].includes(step.do);
     if (needsTarget && (typeof step.target !== 'string' || !step.target)) {
       problems.push(`${at}: ${step.do} needs a target selector.`);
     }
@@ -187,6 +209,8 @@ async function doStep(page, step, { origin, dir, prefix, shots }) {
     }
     case 'wait':
       return page.waitForTimeout(step.ms);
+    case 'scroll':
+      return scrollStep(page, step.target, STEP_TIMEOUT_MS);
     case 'screenshot': {
       const file = join(dir, `${prefix}-${step.name}.png`);
       await page.screenshot({ path: file });
@@ -197,8 +221,9 @@ async function doStep(page, step, { origin, dir, prefix, shots }) {
 }
 
 // Runs the scenario in a fresh context that loads only the saved state for
-// `loginName` on this host (none when the preview has no login).
-// Returns { url, shots, failedStep, consoleErrors, pageErrors, messages, videoError? }.
+// `loginName` on this host (none when the preview has no login). With
+// `demoDir`, also takes the demo's keyframes there (see demo.mjs).
+// Returns { url, shots, failedStep, consoleErrors, pageErrors, messages, demoError? }.
 export async function runSide({
   browser,
   origin,
@@ -207,7 +232,7 @@ export async function runSide({
   prefix,
   login,
   loginName,
-  videoTo,
+  demoDir,
   pr = null,
 }) {
   const problem = originProblem(origin, login, pr);
@@ -218,8 +243,6 @@ export async function runSide({
   if (login && loginName && existsSync(statePath(loginName, host))) {
     options.storageState = statePath(loginName, host);
   }
-  const tmpVideo = join(dir, '.video-tmp');
-  if (videoTo) options.recordVideo = { dir: tmpVideo, size: viewport };
   mkdirSync(dir, { recursive: true });
 
   const result = {
@@ -264,9 +287,28 @@ export async function runSide({
     }
   };
 
-  let video = null;
+  // The demo's keyframes. A failure here drops the demo, never the step: the
+  // caller fails the command when --demo was asked for and no demo exists.
+  let recorder = demoDir
+    ? new DemoRecorder({
+        page,
+        dir: demoDir,
+        viewport,
+        title: host,
+        caption: scenario.caption,
+        timeout: STEP_TIMEOUT_MS,
+      })
+    : null;
+  const demo = async (call) => {
+    if (!recorder) return;
+    try {
+      await call(recorder);
+    } catch (err) {
+      result.demoError = firstLine(err);
+      recorder = null;
+    }
+  };
   try {
-    video = page.video();
     try {
       await page.goto(result.url, { waitUntil: 'load', timeout: LOAD_TIMEOUT_MS });
       await page.waitForTimeout(1500);
@@ -278,10 +320,12 @@ export async function runSide({
       const start = join(dir, `${prefix}-00-start.png`);
       await page.screenshot({ path: start });
       result.shots.push(start);
+      await demo((r) => r.start());
     }
     const steps = result.failedStep ? [] : scenario.steps;
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
+      await demo((r) => r.before(step));
       try {
         await doStep(page, step, { origin, dir, prefix, shots: result.shots });
       } catch (err) {
@@ -292,18 +336,14 @@ export async function runSide({
         await fail(i + 1, step.do, 'left the site', false);
         break;
       }
+      await demo((r) => r.after(step));
+    }
+    if (!result.failedStep) await demo((r) => r.finish());
+    else if (recorder) {
+      result.demoError = `step ${result.failedStep.index} failed; see ${prefix}.failedStep.`;
     }
   } finally {
     await context.close();
-    if (videoTo && video) {
-      try {
-        await video.saveAs(videoTo);
-      } catch (err) {
-        // The caller fails the command when --demo was asked for and no video exists.
-        result.videoError = firstLine(err);
-      }
-    }
-    rmSync(tmpVideo, { recursive: true, force: true });
   }
   return result;
 }
@@ -350,13 +390,37 @@ export function recheckBeforeSignIn({ repo, pr, previewKey, record }, getPr = re
   return null;
 }
 
-function demoMissing(videoError) {
-  return {
-    code: 1,
-    out: {
-      error: `The demo video was not saved${videoError ? `: ${videoError}` : '.'}`,
-    },
-  };
+// Exit 1 for --demo with no demo. The run (when there is one) comes along, so a
+// failed step's reason and screenshot are still in the output.
+function demoMissing(demoError, run = null) {
+  const error = `The demo video was not rendered${demoError ? `: ${demoError}` : '.'}`;
+  return { code: 1, out: run ? { error, ...run } : { error } };
+}
+
+// Draws demo.mp4 next to run.json from the keyframes in `<runBase>/demo`. It is
+// drawn to a separate file and moved over demo.mp4 only once whole, so a failed
+// re-draw keeps the last good video. Returns { demo } or { demoError }.
+async function renderInto({ browser, runBase, style, render }) {
+  const out = join(runBase, 'demo.mp4');
+  const partial = join(runBase, 'demo.partial.mp4');
+  rmSync(partial, { force: true });
+  try {
+    await render({ browser, dir: join(runBase, 'demo'), out: partial, style });
+    if (!existsSync(partial)) return { demoError: 'ffmpeg wrote no file.' };
+    renameSync(partial, out);
+  } catch (err) {
+    rmSync(partial, { force: true });
+    return { demoError: firstLine(err) };
+  }
+  return { demo: out };
+}
+
+// The demo's look: `--style <file>` (which must exist), else
+// ~/.claude/visual-qa/demo-style.json when there is one, else the defaults.
+function demoStyle(styleFile) {
+  if (styleFile) return loadStyle(styleFile);
+  const saved = join(home(), 'demo-style.json');
+  return loadStyle(existsSync(saved) ? saved : null);
 }
 
 function sideFiles(side) {
@@ -367,7 +431,10 @@ function sideFiles(side) {
 
 // Before/after on a PR: production, then the preview.
 // `deps` replaces the gh, browser, sign-in, and re-check functions in tests.
-export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, deps = {}) {
+export async function runCapture(
+  { pr, repo, previewKey, scenarioFile, demo, styleFile },
+  deps = {},
+) {
   const {
     loadConfig: readConfig = loadConfig,
     readPr: getPr = readPr,
@@ -376,10 +443,13 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, d
     signIn: signInOn = signIn,
     recheck = recheckBeforeSignIn,
     runSide: runOneSide = runSide,
+    renderDemo: render = renderDemo,
   } = deps;
   const loaded = loadScenario(scenarioFile);
   if (loaded.problems) return refused(loaded.problems);
   const { scenario } = loaded;
+  const look = demo ? demoStyle(styleFile) : null;
+  if (look?.problems.length) return refused(look.problems);
   const config = readConfig();
   const entry = config.repos?.[repo]?.previews?.[previewKey];
   if (!entry) {
@@ -421,7 +491,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, d
     files: [],
   };
 
-  let videoError;
+  let demoError;
   const browser = await launch();
   try {
     if (entry.production) {
@@ -450,7 +520,11 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, d
       if (stale) return stale;
       await signInOn({ browser, login, loginName: entry.login, origin: previewOrigin, pr });
     }
-    const videoTo = demo ? join(runBase, 'demo.webm') : null;
+    const demoDir = demo ? join(runBase, 'demo') : null;
+    if (demoDir) {
+      rmSync(demoDir, { recursive: true, force: true });
+      rmSync(join(runBase, 'demo.mp4'), { force: true });
+    }
     const after = await runOneSide({
       browser,
       origin: previewOrigin,
@@ -459,7 +533,7 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, d
       prefix: 'after',
       login,
       loginName: entry.login,
-      videoTo,
+      demoDir,
       pr,
     });
     run.after = {
@@ -470,8 +544,12 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, d
       pageErrors: after.pageErrors,
       messages: after.messages,
     };
-    if (videoTo && existsSync(videoTo)) run.demo = videoTo;
-    videoError = after.videoError;
+    demoError = after.demoError;
+    if (demoDir && !demoError) {
+      const drawn = await renderInto({ browser, runBase, style: look.style, render });
+      run.demo = drawn.demo ?? null;
+      demoError = drawn.demoError;
+    }
   } finally {
     await browser.close();
   }
@@ -480,15 +558,17 @@ export async function runCapture({ pr, repo, previewKey, scenarioFile, demo }, d
   run.stale = getPr(repo, pr).headRefOid !== head;
   writeRun(runBase, run);
   if (run.stale) return { code: 3, out: run };
-  if (demo && !run.demo) return demoMissing(videoError);
+  if (demo && !run.demo) return demoMissing(demoError, run);
   return { code: 0, out: run };
 }
 
 // Before side only, on a configured production site. No PR, no gate.
-export async function runProductionOnly({ url, scenarioFile, demo }) {
+export async function runProductionOnly({ url, scenarioFile, demo, styleFile }) {
   const loaded = loadScenario(scenarioFile);
   if (loaded.problems) return refused(loaded.problems);
   const { scenario } = loaded;
+  const look = demo ? demoStyle(styleFile) : null;
+  if (look?.problems.length) return refused(look.problems);
   const config = loadConfig();
   const target = url ? productionTarget(config, url) : null;
   if (!target) return refused(['That URL is not a configured production site.']);
@@ -502,7 +582,7 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
   mkdirSync(runBase, { recursive: true });
   const browser = await launchBrowser();
   let side;
-  const videoTo = demo ? join(runBase, 'demo.webm') : null;
+  let drawn = {};
   try {
     if (login) await signIn({ browser, login, loginName: target.login, origin: target.origin });
     side = await runSide({
@@ -513,8 +593,11 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
       prefix: 'before',
       login,
       loginName: target.login,
-      videoTo,
+      demoDir: demo ? join(runBase, 'demo') : null,
     });
+    if (demo && !side.demoError) {
+      drawn = await renderInto({ browser, runBase, style: look.style, render: renderDemo });
+    }
   } finally {
     await browser.close();
   }
@@ -528,12 +611,46 @@ export async function runProductionOnly({ url, scenarioFile, demo }) {
       pageErrors: side.pageErrors,
       messages: side.messages,
     },
-    demo: videoTo && existsSync(videoTo) ? videoTo : null,
-    files: [...side.shots, ...(videoTo && existsSync(videoTo) ? [videoTo] : [])],
+    demo: drawn.demo ?? null,
+    files: [...side.shots, ...(drawn.demo ? [drawn.demo] : [])],
   };
   writeRun(runBase, run);
-  if (demo && !run.demo) return demoMissing(side.videoError);
+  if (demo && !run.demo) return demoMissing(side.demoError ?? drawn.demoError, run);
   return { code: 0, out: run };
+}
+
+// Re-draws a run's demo from the keyframes it already has, for a new look or
+// pacing. Opens no site: the only page is the local render page.
+export async function runRenderDemo({ run, styleFile }, deps = {}) {
+  const { launchBrowser: launch = launchBrowser, renderDemo: render = renderDemo } = deps;
+  let runBase;
+  let runJson;
+  try {
+    runBase = run ? runFolder(run) : null;
+    runJson = runBase ? readRunFile(runBase) : null;
+  } catch (err) {
+    return refused([err.message]);
+  }
+  if (!runJson) return refused(['--run must be a scenario folder holding a run.json.']);
+  if (!existsSync(join(runBase, 'demo', 'timeline.json'))) {
+    return refused(['That run has no demo keyframes; capture with --demo first.']);
+  }
+  const look = demoStyle(styleFile);
+  if (look.problems.length) return refused(look.problems);
+  const browser = await launch();
+  let drawn;
+  try {
+    drawn = await renderInto({ browser, runBase, style: look.style, render });
+  } finally {
+    await browser.close();
+  }
+  if (!drawn.demo) return demoMissing(drawn.demoError);
+  runJson.demo = drawn.demo;
+  if (Array.isArray(runJson.files) && !runJson.files.includes(drawn.demo)) {
+    runJson.files = [...runJson.files, drawn.demo];
+  }
+  writeFileSync(join(runBase, 'run.json'), `${JSON.stringify(runJson, null, 2)}\n`);
+  return { code: 0, out: { demo: drawn.demo } };
 }
 
 // Signs in once and saves state. A preview needs the same gate pass as capture and
@@ -615,14 +732,33 @@ export function latestPath(repo, pr) {
   return join(home(), 'runs', repo.replace('/', '__'), `pr-${pr}`, 'latest.json');
 }
 
-// Reads `run.json` for a --run path inside the runs folder. Returns the parsed
-// record, or null when there is no `run.json` there.
+// The real folder a --run path names (a scenario folder, or its run.json), or
+// null when it doesn't exist. Links are resolved before the check, so a link
+// inside the runs folder can't lead outside it.
+function runFolder(run) {
+  const given = resolve(run);
+  const folder = given.endsWith('.json') ? dirname(given) : given;
+  const root = resolve(home(), 'runs');
+  const outside = new Error('--run must be inside the visual-qa runs folder.');
+  if (!folder.startsWith(root + sep)) throw outside;
+  if (!existsSync(folder)) return null;
+  const real = realpathSync(folder);
+  if (!real.startsWith(realpathSync(root) + sep)) throw outside;
+  return real;
+}
+
+// The folder's run.json, or null when there is none. Never read or written
+// through a link.
+function readRunFile(folder) {
+  const file = join(folder, 'run.json');
+  if (!existsSync(file)) return null;
+  if (lstatSync(file).isSymbolicLink()) throw new Error('run.json must not be a link.');
+  return JSON.parse(readFileSync(file, 'utf8'));
+}
+
 function readRunJson(run) {
-  const base = resolve(run);
-  const root = resolve(home(), 'runs') + sep;
-  if (!base.startsWith(root)) throw new Error('--run must be inside the visual-qa runs folder.');
-  const file = base.endsWith('.json') ? base : join(base, 'run.json');
-  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+  const folder = runFolder(run);
+  return folder ? readRunFile(folder) : null;
 }
 
 // Why a run may not be recorded as `passed`, or null. It must be the scenario

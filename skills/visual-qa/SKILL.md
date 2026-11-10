@@ -88,11 +88,13 @@ Commit authors are matched through GitHub's email-to-account link. Faking a comm
      "name": "site-list-filter",
      "start": "/",
      "viewport": { "width": 1280, "height": 800 },
+     "caption": "The site list",
      "steps": [
-       { "do": "click", "target": "role=button[name=\"Filter\"]" },
+       { "do": "click", "target": "role=button[name=\"Filter\"]", "caption": "Filter the list" },
        { "do": "fill", "target": "input[name=search]", "value": "demo" },
        { "do": "press", "key": "Enter" },
        { "do": "waitFor", "target": "text=Results" },
+       { "do": "scroll", "target": "text=Archived", "caption": "Archived sites stay at the end" },
        { "do": "goto", "path": "/settings" },
        { "do": "wait", "ms": 500 },
        { "do": "screenshot", "name": "filtered" }
@@ -101,7 +103,8 @@ Commit authors are matched through GitHub's email-to-account link. Faking a comm
    ```
 
    - `name` and screenshot names match `^[a-z0-9-]+$`. `start` and `goto` paths start with a single `/`. `viewport` is optional (default 1280 by 800).
-   - `do` is one of `click`, `fill`, `press`, `waitFor`, `goto`, `wait`, `screenshot`. `target` is a Playwright selector. `wait` is at most 10000 ms. At most 100 steps.
+   - `do` is one of `click`, `fill`, `press`, `waitFor`, `goto`, `wait`, `screenshot`, `scroll`. `target` is a Playwright selector. `scroll` brings its target to the middle of whatever list or page holds it. `wait` is at most 10000 ms. At most 100 steps.
+   - `caption` (optional, on the scenario or any step) is one line of at most 90 characters, shown under the demo from that step on. Only the demo uses it. Write it in your own words, never copied from the page.
    - `fill` on a password or code field fails the step. Scenarios never type secrets.
    - Each step has a 10 second timeout. A page that leaves the site ends that side with "left the site".
    - Every run screenshots `00-start` after loading `start`, then each `screenshot` step. A failed step screenshots `<index>-failed` and ends that side.
@@ -137,15 +140,22 @@ Commit authors are matched through GitHub's email-to-account link. Faking a comm
 
 Record the demo only once nothing else is in flight: CI passing, CodeRabbit done, no fixes pending. This keeps the video on the final code.
 
-1. Run `capture --demo` on the head commit, with the scenario (or the one that best shows the change):
+1. Run `capture --demo` on the head commit, with the scenario (or the one that best shows the change). Give that scenario a caption on each step that shows something, and a `scroll` step wherever the change sits below the fold. `references/demo.md` covers writing a scenario that makes a good demo.
 
    ```sh
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" capture <pr> --preview <check> --scenario <file> --demo
    ```
 
-   `run.json` gets `demo`, the path to `demo.webm`, which is also in `files`. The video records only the after side, never the sign-in. If the video isn't saved, the command exits 1 with an `error` instead of succeeding.
+   The demo is drawn, not filmed. While the after side runs, the script takes a few screenshots around each step: before the cursor arrives, with the target hovered, and once the click has settled. It also notes where each target sits. It then draws `demo.mp4` from those: a cursor gliding between targets, a ripple on each click, crossfades, smooth scrolling, a window frame, and the captions. `run.json` gets `demo`, the path to `demo.mp4`, which is also in `files`. The keyframes and `timeline.json` stay in `<scenario dir>/demo/`. Only the after side is drawn, never the sign-in. If any after-side step fails, or the drawing fails, the command exits 1 with an `error` instead of succeeding. The rest of `run.json` comes with it, so a failed step's `after.failedStep` and its `-failed` screenshot are still there to check.
 
-2. If the demo shows something broken, go back to "Fixes".
+2. Watch the demo (extract a few frames with `ffmpeg` and read them). If it shows something broken, go back to "Fixes". If only the look or pacing is off, re-draw it from the same keyframes without opening the site again:
+
+   ```sh
+   node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" render-demo --run <run dir>/<scenario name> [--style <file>]
+   ```
+
+   The look comes from `--style <file>` (which must exist), else `~/.claude/visual-qa/demo-style.json` when it exists, else the defaults. `capture --demo` takes `--style` too. A failed re-draw keeps the last good `demo.mp4`. `references/demo.md` lists every style key.
+
 3. Otherwise record it, passing the scenario's run directory (`<run dir>/<scenario name>`):
 
    ```sh
@@ -196,6 +206,8 @@ Everything private lives in `~/.claude/visual-qa/` (override with `VISUAL_QA_HOM
    npx playwright install chromium
    ```
 
+   **ffmpeg**, which turns the drawn demo frames into an MP4: `brew install ffmpeg`.
+
 2. **A test login in 1Password.** A vault holding one item for a dedicated test user, with `username` and `password` fields and a one-time-code field (the item's one-time password).
 3. **A read-only service account** for that vault, so the token can read the item and nothing else.
 4. **The token in the macOS Keychain**, under a service name of your choosing. The script reads it with `security find-generic-password -s <service> -w` and passes it to `op` only in that child's environment.
@@ -241,12 +253,12 @@ Everything private lives in `~/.claude/visual-qa/` (override with `VISUAL_QA_HOM
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" setup --check
    ```
 
-   It reports `{ playwright, chromium, config, logins: { <name>: { secrets, signedIn } } }`, signing in on each login's production origin only, and exits 0 only when everything is true (with no logins configured, `logins` is `{}` and Playwright, Chromium, and config are all that's checked). Nothing in it prints a secret.
+   It reports `{ playwright, chromium, ffmpeg, config, logins: { <name>: { secrets, signedIn } } }`, signing in on each login's production origin only, and exits 0 only when everything is true (with no logins configured, `logins` is `{}` and Playwright, Chromium, ffmpeg, and config are all that's checked). Nothing in it prints a secret.
 
 ## Exit codes
 
 - `0`: done.
-- `1`: error (a missing install, a `gh`, `op`, or `security` failure, or `--demo` with no video saved). The message is in `error`.
+- `1`: error (a missing install, a `gh`, `op`, `security`, or `ffmpeg` failure, or `--demo` with no demo drawn). The message is in `error`.
 - `2`: bad usage (printed as `{ error, usage }`), or refused (invalid scenario, a URL that isn't a configured production site or allowed host, invalid config, or an approval item that isn't accepted).
 - `3`: blocked: the gate hasn't passed, an approval is needed, the preview isn't ready, or the run went stale.
 - `4`: Sean needs to finish sign-in.
@@ -255,7 +267,7 @@ Everything private lives in `~/.claude/visual-qa/` (override with `VISUAL_QA_HOM
 
 - Never type a password anywhere but `signin.mjs`, and never type or fill a secret from a scenario.
 - Never print, log, or paste secrets: not the token, the password, or a one-time code.
-- Never use Claude in Chrome. It drives Sean's real browser with his own sign-ins; a malicious preview would run next to them. Playwright with saved state per login and host is the only browser.
+- Never use Claude in Chrome. It drives Sean's real browser with his own sign-ins; a malicious preview would run next to them. Playwright with saved state per login and host is the only browser, and the demo is drawn from its screenshots.
 - Never upload demos or screenshots to the PR. They stay local.
 - Never sign in on a preview without a gate pass for the head commit.
 - Never save a bot to the approved list. Bots are approved per PR.
