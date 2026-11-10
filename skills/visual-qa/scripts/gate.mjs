@@ -122,7 +122,7 @@ function unquoteGitPath(body) {
 const UNPARSED_PATH = '(unparsed path)';
 
 // Changes whose content Codex cannot read in a text diff: binary files and
-// patches, Git LFS pointers, and submodules. Returns the file paths (untrusted
+// patches, Git LFS pointers, submodules, and new symlinks (the diff shows only the link target). Returns the file paths (untrusted
 // text, control characters removed and cut short). A marker whose file header
 // cannot be parsed is still reported, as "(unparsed path)", so this never
 // returns [] when a marker is present.
@@ -146,6 +146,16 @@ export function findOpaqueChanges(diffText) {
       // eslint-disable-next-line no-control-regex
       current = name === null ? null : name.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200);
       flagged = false;
+      continue;
+    }
+    // A pointer's version line can fall outside the context, so a changed oid
+    // line marks it too (the size line sits beside it). New symlinks and mode
+    // changes to one show only the link target, not what it now serves.
+    if (
+      /^(new file mode|new mode) 120000$/.test(line) ||
+      /^[-+]oid sha256:[0-9a-f]{64}$/.test(line)
+    ) {
+      flag();
       continue;
     }
     if (
@@ -299,7 +309,7 @@ export function readPr(repo, pr) {
     '--repo',
     repo,
     '--json',
-    'headRefOid,author,statusCheckRollup',
+    'baseRefOid,headRefOid,author,statusCheckRollup',
   ]);
 }
 
@@ -319,9 +329,19 @@ function isTooLarge(stderr) {
   return /too[_ ]large|diff exceeded|ENOBUFS|maxBuffer/i.test(stderr);
 }
 
-// Always the whole PR, never a delta. Returns `{ diff }` or `{ tooLarge: true }`.
-export function readDiff(repo, pr) {
-  const res = gh(['pr', 'diff', String(pr), '--repo', repo], { maxBuffer: MAX_DIFF_BYTES * 4 });
+// The PR's whole diff from the merge base, fetched by the exact commit IDs read
+// at the start of the gate, so a push (or a revert) while the gate runs cannot
+// put another commit's diff under this commit's ID. Never a delta. Returns
+// `{ diff }` or `{ tooLarge: true }`.
+export function readDiff(repo, base, head) {
+  for (const id of [base, head]) {
+    if (!/^[0-9a-f]{40}$/.test(String(id)))
+      throw new Error('Could not read the diff: bad commit id.');
+  }
+  const res = gh(
+    ['api', '-H', 'Accept: application/vnd.github.diff', `repos/${repo}/compare/${base}...${head}`],
+    { maxBuffer: MAX_DIFF_BYTES * 4 },
+  );
   if (!res.ok) {
     if (isTooLarge(res.stderr)) return { tooLarge: true };
     throw new Error(`Could not read the diff: ${res.stderr.trim().slice(0, 200)}`);
@@ -339,6 +359,13 @@ export function runCodex(dir, diff, spawn = spawnSync) {
   });
   if (!inside.error && inside.status === 0) {
     throw new Error('The run folder is inside a git repo; Codex must run outside any repo.');
+  }
+  // Only git's own "not a git repository" counts as outside. A missing git or any
+  // other failure (such as "dubious ownership") leaves it unknown, so refuse.
+  const outside =
+    !inside.error && inside.status !== 0 && /not a git repository/i.test(inside.stderr ?? '');
+  if (!outside) {
+    throw new Error("Couldn't confirm the run folder is outside a git repo; Codex was not run.");
   }
   const diffPath = resolve(dir, 'safety.diff');
   const promptPath = resolve(dir, 'safety-prompt.md');
@@ -446,7 +473,7 @@ export function runGate({ pr, repo, previewKey }, deps = {}) {
     else {
       const dir = runDir(repo, pr, head);
       mkdirSync(dir, { recursive: true });
-      const read = getDiff(repo, pr);
+      const read = getDiff(repo, view.baseRefOid, head);
       if (read.tooLarge) diffTooLarge = true;
       else {
         // Codex would see only a placeholder for opaque changes, so it is not run.

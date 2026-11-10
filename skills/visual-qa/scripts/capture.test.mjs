@@ -23,7 +23,7 @@ import {
   validateScenario,
   withCurrent,
 } from './capture.mjs';
-import { blockPrivateNetwork, guardedFill, statePath } from './signin.mjs';
+import { blockPrivateNetwork, guardedFill, launchBrowser, statePath } from './signin.mjs';
 
 const good = {
   name: 'list-filter',
@@ -361,6 +361,35 @@ test('guardedFill refuses http, a port, or another host, and types nothing', asy
   }
 });
 
+test('guardedFill re-checks the URL after finding the field, and types nothing', async () => {
+  for (const next of ['https://evil.test/login', 'http://app.example.test/login']) {
+    let url = 'https://app.example.test/login';
+    const filled = [];
+    const handle = { fill: async (v) => filled.push(v), dispose: async () => {} };
+    const page = { url: () => url };
+    const locator = {
+      elementHandle: async () => {
+        url = next; // the page navigates while the field is being located
+        return handle;
+      },
+    };
+    await assert.rejects(guardedFill(page, locator, 'secret', fillLogin, 7), /left the allowed/);
+    assert.deepEqual(filled, [], next);
+  }
+});
+
+test('launchBrowser keeps WebRTC on the proxy path', async () => {
+  let seen;
+  const browser = await launchBrowser({
+    launcher: async (options) => {
+      seen = options;
+      return { close: async () => {} };
+    },
+  });
+  assert.ok(browser);
+  assert.ok(seen.args.includes('--force-webrtc-ip-handling-policy=disable_non_proxied_udp'));
+});
+
 test('guardedFill fills on an allowed https origin', async () => {
   for (const url of [
     'https://app.example.test/login',
@@ -423,7 +452,7 @@ test('blockPrivateNetwork aborts private hosts and continues public ones', async
 // ---------- record sha ----------
 
 test('recordShaProblem needs a 40-char sha that is the current head', () => {
-  const base = { head: HEAD, status: 'skipped', runJson: null };
+  const base = { head: HEAD, runJson: null };
   assert.equal(recordShaProblem({ ...base, sha: HEAD }), null);
   assert.match(recordShaProblem({ ...base, sha: undefined }), /--sha/);
   assert.match(recordShaProblem({ ...base, sha: 'abc123' }), /--sha/);
@@ -433,15 +462,9 @@ test('recordShaProblem needs a 40-char sha that is the current head', () => {
 
 test('recordShaProblem needs a recorded run to be for the same commit', () => {
   const args = { sha: HEAD, head: HEAD };
-  assert.equal(recordShaProblem({ ...args, status: 'passed', runJson: { sha: HEAD } }), null);
-  assert.equal(recordShaProblem({ ...args, status: 'failed', runJson: { sha: HEAD } }), null);
-  assert.equal(recordShaProblem({ ...args, status: 'failed', runJson: null }), null);
-  for (const status of ['passed', 'failed']) {
-    assert.match(
-      recordShaProblem({ ...args, status, runJson: { sha: OTHER } }),
-      /different commit/,
-    );
-  }
+  assert.equal(recordShaProblem({ ...args, runJson: { sha: HEAD } }), null);
+  assert.equal(recordShaProblem({ ...args, runJson: null }), null);
+  assert.match(recordShaProblem({ ...args, runJson: { sha: OTHER } }), /different commit/);
 });
 
 // ---------- the re-check comes before sign-in ----------
@@ -514,6 +537,26 @@ test('runCapture does not sign in when the re-check refuses', async () => {
   );
   assert.equal(res, refusal);
   assert.deepEqual(calls, ['recheck']);
+});
+
+test('runCapture --demo exits 1 when no demo video was saved', async () => {
+  const { deps } = guardDeps({
+    runSide: async ({ origin, scenario }) => ({
+      url: `${origin}${scenario.start}`,
+      shots: [],
+      failedStep: null,
+      consoleErrors: 0,
+      pageErrors: 0,
+      messages: [],
+      videoError: 'no video',
+    }),
+  });
+  const res = await runCapture(
+    { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: true },
+    deps,
+  );
+  assert.equal(res.code, 1);
+  assert.match(res.out.error, /video was not saved/);
 });
 
 test('runSigninCommand re-checks before it signs in on a preview', async () => {
@@ -607,4 +650,14 @@ test('runRecord saves a skipped record whose --run is for the head commit', () =
   );
   assert.equal(res.code, 0);
   assert.equal(res.out.sha, HEAD);
+});
+
+test('runRecord refuses a missing or stale --sha', () => {
+  for (const sha of [undefined, OTHER]) {
+    const res = runRecord({ pr: 7, repo: 'o/r', status: 'skipped', reason: 'no UI', sha }, () =>
+      prView(HEAD),
+    );
+    assert.equal(res.code, 2, String(sha));
+    assert.match(res.out.problems[0], sha ? /PR moved/ : /--sha/);
+  }
 });

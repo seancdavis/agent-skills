@@ -175,7 +175,7 @@ Tell Sean where the files are; the demo and screenshots stay local. He drags in 
 Exit 4 from any command means sign-in needs Sean: `{ "needs": "sean", "reason": "..." }` (a CAPTCHA, an error message, or still on the sign-in page).
 
 - Production: ask him with `AskUserQuestion` whether to open a visible browser. On yes, run `signin --origin <production-url> --headed` and wait for the command to return (up to 5 minutes); he finishes the CAPTCHA or code there, and later runs reuse the saved state. `--headed` works only on production origins. Any error in the automated steps closes the browser and fails the command; only a clean run that is waiting on a CAPTCHA or code waits for him.
-- Preview: `--headed` is refused (exit 2). Ask Sean, then `record --status skipped` with a reason saying sign-in is blocked (CAPTCHA or code). Do not retry.
+- Preview: `--headed` is refused (exit 2). Ask Sean, then `record <pr> --status skipped --sha <sha>` with a reason saying sign-in is blocked (CAPTCHA or code). Do not retry.
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" signin --origin <production-url> --headed
