@@ -34,9 +34,11 @@ import {
   runCapture,
   runProductionOnly,
   runRecord,
+  runRenderDemo,
   runSigninCommand,
   runStatus,
 } from './capture.mjs';
+import { ffmpegStatus } from './demo.mjs';
 import { launchBrowser, playwrightStatus, readSecrets, signIn, SigninError } from './signin.mjs';
 
 const USAGE = `Usage:
@@ -46,8 +48,9 @@ const USAGE = `Usage:
   visual-qa.mjs approve-author <login>
   visual-qa.mjs approve-pr <pr> <item>... [--repo owner/name]
   visual-qa.mjs gate <pr> --preview <check> [--repo owner/name]
-  visual-qa.mjs capture <pr> --preview <check> --scenario <file> [--demo] [--repo owner/name]
-  visual-qa.mjs capture --production-only --url <url> --scenario <file> [--demo]
+  visual-qa.mjs capture <pr> --preview <check> --scenario <file> [--demo [--style <file>]] [--repo owner/name]
+  visual-qa.mjs capture --production-only --url <url> --scenario <file> [--demo [--style <file>]]
+  visual-qa.mjs render-demo --run <dir> [--style <file>]
   visual-qa.mjs signin <pr> --preview <check> [--repo owner/name]
   visual-qa.mjs signin --origin <production-url> [--headed]
   visual-qa.mjs record <pr> --status <passed|failed|skipped> --sha <sha> [--reason <text>] [--run <dir>] [--repo owner/name]
@@ -66,6 +69,7 @@ const VALUED = [
   'reason',
   'run',
   'sha',
+  'style',
 ];
 const BOOLEAN = ['check', 'demo', 'production-only', 'headed'];
 
@@ -108,7 +112,12 @@ function defaultRepo() {
 async function setupCheck() {
   const config = loadConfig();
   const problems = validateConfig(config);
-  const report = { ...playwrightStatus(), config: problems.length === 0, logins: {} };
+  const report = {
+    ...playwrightStatus(),
+    ...ffmpegStatus(),
+    config: problems.length === 0,
+    logins: {},
+  };
   if (problems.length) report.problems = problems;
   const names = Object.keys(config.logins);
   let browser = null;
@@ -140,6 +149,7 @@ async function setupCheck() {
   const ok =
     report.playwright &&
     report.chromium &&
+    report.ffmpeg &&
     report.config &&
     names.every((n) => report.logins[n].secrets && report.logins[n].signedIn);
   return { code: ok ? 0 : report.needsSean ? 4 : 1, out: report };
@@ -227,10 +237,16 @@ function gateCommand(args) {
 }
 
 function captureCommand(args) {
+  if (args.style && !args.demo) throw new UsageError('--style needs --demo.');
   if (args['production-only']) {
     if (args._.length) throw new UsageError('--production-only takes no <pr>.');
     if (!args.url || !args.scenario) throw new UsageError('--url and --scenario are required.');
-    return runProductionOnly({ url: args.url, scenarioFile: args.scenario, demo: args.demo });
+    return runProductionOnly({
+      url: args.url,
+      scenarioFile: args.scenario,
+      demo: args.demo,
+      styleFile: args.style,
+    });
   }
   const pr = prNumber(args, 'capture');
   if (args._.length > 1) throw new UsageError('capture takes exactly <pr>.');
@@ -242,7 +258,14 @@ function captureCommand(args) {
     previewKey: args.preview,
     scenarioFile: args.scenario,
     demo: args.demo,
+    styleFile: args.style,
   });
+}
+
+function renderDemoCommand(args) {
+  if (args._.length) throw new UsageError('render-demo takes no <pr>.');
+  if (!args.run) throw new UsageError('--run is required.');
+  return runRenderDemo({ run: args.run, styleFile: args.style });
 }
 
 function signinCommand(args) {
@@ -294,6 +317,7 @@ const COMMANDS = {
   'approve-pr': approvePrCommand,
   gate: gateCommand,
   capture: captureCommand,
+  'render-demo': renderDemoCommand,
   signin: signinCommand,
   record: recordCommand,
   status: statusCommand,

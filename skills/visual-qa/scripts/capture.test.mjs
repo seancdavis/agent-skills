@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,7 @@ import {
   resolvePreviewOrigin,
   runCapture,
   runRecord,
+  runRenderDemo,
   runSide,
   runSigninCommand,
   validateScenario,
@@ -72,6 +73,24 @@ test('validateScenario rejects an unknown step', () => {
 test('validateScenario rejects a long wait', () => {
   assert.ok(validateScenario({ ...good, steps: [{ do: 'wait', ms: 10001 }] }).length > 0);
   assert.deepEqual(validateScenario({ ...good, steps: [{ do: 'wait', ms: 10000 }] }), []);
+});
+
+test('validateScenario accepts captions and a scroll step', () => {
+  const steps = [
+    { do: 'scroll', target: 'text=Published', caption: 'Down to the published versions' },
+    { do: 'click', target: 'text=Settings', caption: 'Open settings' },
+  ];
+  assert.deepEqual(validateScenario({ ...good, caption: 'The list', steps }), []);
+});
+
+test('validateScenario rejects a scroll with no target and bad captions', () => {
+  assert.ok(validateScenario({ ...good, steps: [{ do: 'scroll' }] }).length > 0);
+  const long = 'x'.repeat(91);
+  assert.ok(validateScenario({ ...good, caption: long }).length > 0);
+  assert.ok(validateScenario({ ...good, caption: '' }).length > 0);
+  assert.ok(validateScenario({ ...good, caption: 'two\nlines' }).length > 0);
+  const steps = [{ do: 'wait', ms: 1, caption: 42 }];
+  assert.ok(validateScenario({ ...good, steps }).length > 0);
 });
 
 test('validateScenario rejects a non-object', () => {
@@ -539,7 +558,8 @@ test('runCapture does not sign in when the re-check refuses', async () => {
   assert.deepEqual(calls, ['recheck']);
 });
 
-test('runCapture --demo exits 1 when no demo video was saved', async () => {
+test('runCapture --demo exits 1 when the keyframes failed, without rendering', async () => {
+  let rendered = false;
   const { deps } = guardDeps({
     runSide: async ({ origin, scenario }) => ({
       url: `${origin}${scenario.start}`,
@@ -548,15 +568,82 @@ test('runCapture --demo exits 1 when no demo video was saved', async () => {
       consoleErrors: 0,
       pageErrors: 0,
       messages: [],
-      videoError: 'no video',
+      demoError: 'no keyframes',
     }),
+    renderDemo: async () => {
+      rendered = true;
+    },
   });
   const res = await runCapture(
     { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: true },
     deps,
   );
   assert.equal(res.code, 1);
-  assert.match(res.out.error, /video was not saved/);
+  assert.match(res.out.error, /not rendered: no keyframes/);
+  assert.equal(rendered, false);
+});
+
+test('runCapture --demo renders the after side keyframes into demo.mp4', async () => {
+  const seen = {};
+  const { deps } = guardDeps({
+    runSide: async ({ origin, scenario, demoDir, prefix }) => {
+      seen[prefix] = demoDir;
+      return {
+        url: `${origin}${scenario.start}`,
+        shots: [],
+        failedStep: null,
+        consoleErrors: 0,
+        pageErrors: 0,
+        messages: [],
+      };
+    },
+    renderDemo: async ({ dir, out }) => {
+      seen.render = dir;
+      writeFileSync(out, 'mp4');
+    },
+  });
+  const res = await runCapture(
+    { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: true },
+    deps,
+  );
+  assert.equal(res.code, 0);
+  assert.match(res.out.demo, /demo\.mp4$/);
+  assert.ok(res.out.files.includes(res.out.demo));
+  assert.match(seen.after, /[/\\]demo$/);
+  assert.equal(seen.render, seen.after);
+});
+
+test('runCapture --demo exits 1 when rendering fails', async () => {
+  const { deps } = guardDeps({
+    renderDemo: async () => {
+      throw new Error("ffmpeg isn't installed.");
+    },
+  });
+  const res = await runCapture(
+    { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: true },
+    deps,
+  );
+  assert.equal(res.code, 1);
+  assert.match(res.out.error, /ffmpeg/);
+});
+
+test('runCapture refuses a bad demo style before launching a browser', async () => {
+  const styleFile = join(mkdtempSync(join(tmpdir(), 'vqa-style-')), 'style.json');
+  writeFileSync(styleFile, JSON.stringify({ sparkle: true }));
+  let launched = false;
+  const { deps } = guardDeps({
+    launchBrowser: async () => {
+      launched = true;
+      return { close: async () => {} };
+    },
+  });
+  const res = await runCapture(
+    { pr: 7, repo: 'o/r', previewKey: KEY, scenarioFile: SCENARIO, demo: true, styleFile },
+    deps,
+  );
+  assert.equal(res.code, 2);
+  assert.match(res.out.problems[0], /Unknown style key sparkle/);
+  assert.equal(launched, false);
 });
 
 test('runSigninCommand re-checks before it signs in on a preview', async () => {
@@ -660,4 +747,48 @@ test('runRecord refuses a missing or stale --sha', () => {
     assert.equal(res.code, 2, String(sha));
     assert.match(res.out.problems[0], sha ? /PR moved/ : /--sha/);
   }
+});
+
+// ---------- render-demo ----------
+
+function writeDemoRun({ keyframes, name }) {
+  const dir = join(process.env.VISUAL_QA_HOME, 'runs', 'o__r', 'pr-7', 'abc1234', name);
+  mkdirSync(join(dir, 'demo'), { recursive: true });
+  writeFileSync(join(dir, 'run.json'), JSON.stringify({ sha: HEAD, demo: null, files: [] }));
+  if (keyframes) writeFileSync(join(dir, 'demo', 'timeline.json'), '{}');
+  return dir;
+}
+
+test('runRenderDemo re-draws from the run keyframes and records the demo in run.json', async () => {
+  const run = writeDemoRun({ keyframes: true, name: 'drawn' });
+  let rendered = null;
+  const res = await runRenderDemo(
+    { run },
+    {
+      launchBrowser: async () => ({ close: async () => {} }),
+      renderDemo: async ({ dir, out }) => {
+        rendered = dir;
+        writeFileSync(out, 'mp4');
+      },
+    },
+  );
+  assert.equal(res.code, 0);
+  assert.equal(rendered, join(run, 'demo'));
+  const saved = JSON.parse(readFileSync(join(run, 'run.json'), 'utf8'));
+  assert.equal(saved.demo, join(run, 'demo.mp4'));
+  assert.deepEqual(saved.files, [join(run, 'demo.mp4')]);
+});
+
+test('runRenderDemo refuses a run with no keyframes or outside the runs folder', async () => {
+  const deps = {
+    launchBrowser: async () => {
+      throw new Error('should not launch');
+    },
+  };
+  const none = await runRenderDemo({ run: writeDemoRun({ keyframes: false, name: 'bare' }) }, deps);
+  assert.equal(none.code, 2);
+  assert.match(none.out.problems[0], /no demo keyframes/);
+  const outside = await runRenderDemo({ run: mkdtempSync(join(tmpdir(), 'vqa-elsewhere-')) }, deps);
+  assert.equal(outside.code, 2);
+  assert.match(outside.out.problems[0], /inside the visual-qa runs folder/);
 });
