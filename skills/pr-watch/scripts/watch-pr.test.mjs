@@ -3,8 +3,10 @@ import assert from 'node:assert';
 import {
   allClosed,
   diffSnapshots,
+  findPreviews,
   normalize,
   parseArgs,
+  publicView,
   runLoop,
   summarizeChecks,
   toStored,
@@ -385,4 +387,122 @@ test('parseArgs handles --set-mode and rejects bad input', () => {
     parseArgs(['1', '--repo', 'o/r.x-y', '--interval', '30', '--max-wait', '900']).maxWaitMs,
     900000,
   );
+});
+
+const PREVIEW = 'o/site/deploy-preview';
+const previewCtx = (state = 'SUCCESS', context = PREVIEW) => ({
+  ...ctx(context, state),
+  targetUrl: 'https://deploy-preview-7--site.example.app',
+});
+const previewEvent = (sha = 'abc') => ({
+  pr: 7,
+  type: 'preview',
+  name: PREVIEW,
+  url: 'https://deploy-preview-7--site.example.app',
+  sha,
+});
+
+test('findPreviews lists passed deploy-preview contexts and the deploy/netlify check run', () => {
+  const rollup = [
+    previewCtx(),
+    previewCtx('PENDING', 'o/other/deploy-preview'),
+    previewCtx('FAILURE', 'o/bad/deploy-preview'),
+    ctx('o/site/lint', 'SUCCESS'),
+    run('Header rules - site', 'COMPLETED', 'SUCCESS'),
+    run('Pages changed - site', 'COMPLETED', 'SUCCESS'),
+    run('Redirect rules - site', 'COMPLETED', 'SUCCESS'),
+    { ...run('deploy/netlify', 'COMPLETED', 'SUCCESS'), detailsUrl: 'https://d--x.app' },
+    run('deploy/netlify', 'IN_PROGRESS'),
+  ];
+  assert.deepEqual(findPreviews(rollup), [
+    { name: PREVIEW, url: 'https://deploy-preview-7--site.example.app' },
+    { name: 'deploy/netlify', url: 'https://d--x.app' },
+  ]);
+  assert.deepEqual(findPreviews(null), []);
+});
+
+test('a passing preview emits once, and not again on the next poll with the same head', () => {
+  const pending = makeView({ statusCheckRollup: [previewCtx('PENDING')] });
+  const live = makeView({ statusCheckRollup: [previewCtx()] });
+  assert.deepEqual(diff(pending, live), [
+    previewEvent(),
+    { pr: 7, type: 'checks', from: 'pending', to: 'passing', failed: [] },
+  ]);
+  const saved = toStored(stored(pending), norm(live));
+  assert.deepEqual(diffSnapshots(saved, norm(live), ME), []);
+});
+
+test('a new head commit reports the preview again', () => {
+  const live = makeView({ statusCheckRollup: [previewCtx()] });
+  const pushed = makeView({ statusCheckRollup: [previewCtx()], headRefOid: 'def' });
+  assert.deepEqual(diff(live, pushed), [previewEvent('def')]);
+  const saved = toStored(stored(live), norm(pushed));
+  assert.deepEqual(saved.previews, {
+    sha: 'def',
+    ready: [{ name: PREVIEW, url: 'https://deploy-preview-7--site.example.app' }],
+  });
+});
+
+test('stored ready previews are the ones ready now, and reset on a new head', () => {
+  const both = makeView({
+    statusCheckRollup: [previewCtx(), previewCtx('SUCCESS', 'o/two/deploy-preview')],
+  });
+  const saved = toStored(undefined, norm(both));
+  assert.deepEqual(
+    saved.previews.ready.map((p) => p.name),
+    [PREVIEW, 'o/two/deploy-preview'],
+  );
+  const one = toStored(saved, norm(makeView({ statusCheckRollup: [previewCtx()] })));
+  assert.deepEqual(
+    one.previews.ready.map((p) => p.name),
+    [PREVIEW],
+  );
+  const next = toStored(one, norm(makeView({ headRefOid: 'def' })));
+  assert.deepEqual(next.previews, { sha: 'def', ready: [] });
+});
+
+test('a preview that fails and then succeeds on the same commit reports again', () => {
+  const live = makeView({ statusCheckRollup: [previewCtx()] });
+  const failed = makeView({ statusCheckRollup: [previewCtx('FAILURE')] });
+  const afterFail = toStored(stored(live), norm(failed));
+  assert.deepEqual(afterFail.previews, { sha: 'abc', ready: [] });
+  assert.deepEqual(
+    diffSnapshots(afterFail, norm(live), ME).filter((e) => e.type === 'preview'),
+    [previewEvent()],
+  );
+});
+
+test('pending and failing previews and rules check runs emit nothing', () => {
+  const before = makeView();
+  const after = makeView({
+    statusCheckRollup: [
+      previewCtx('PENDING'),
+      previewCtx('FAILURE', 'o/bad/deploy-preview'),
+      run('Header rules - site', 'COMPLETED', 'SUCCESS'),
+    ],
+  });
+  assert.deepEqual(
+    diff(before, after).filter((e) => e.type === 'preview'),
+    [],
+  );
+});
+
+test('a first poll emits nothing but publicView lists the preview', () => {
+  const view = makeView({ statusCheckRollup: [previewCtx()] });
+  assert.deepEqual(diffSnapshots(undefined, norm(view), ME), []);
+  assert.deepEqual(publicView({ mode: 'reviewers', snapshot: stored(view) }).previews, [
+    { name: PREVIEW, url: 'https://deploy-preview-7--site.example.app' },
+  ]);
+});
+
+test('stored state from before previews existed does not crash', () => {
+  const old = stored(makeView());
+  delete old.previews;
+  const live = makeView({ statusCheckRollup: [previewCtx()] });
+  assert.deepEqual(
+    diffSnapshots(old, norm(live), ME).filter((e) => e.type === 'preview'),
+    [previewEvent()],
+  );
+  assert.deepEqual(toStored(old, norm(live)).previews.ready.length, 1);
+  assert.deepEqual(publicView({ mode: 'reviewers', snapshot: old }).previews, []);
 });
