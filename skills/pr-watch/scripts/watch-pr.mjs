@@ -10,6 +10,9 @@
 // the laptop slept are reported on the first poll. A PR with no saved snapshot
 // gets its first poll as a baseline and reports nothing. The state file holds
 // snapshots and modes only, never comment bodies. It never writes to GitHub.
+//
+// Each comment and review event names the API path for that one item, so the
+// session can read exactly what it was woken for and nothing else on the PR.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -34,7 +37,7 @@ const FAILING = [
   'ERROR',
 ];
 const VIEW_FIELDS =
-  'number,url,state,isDraft,reviewDecision,mergeable,mergeStateStatus,autoMergeRequest,statusCheckRollup,comments,reviews,headRefOid';
+  'number,url,state,isDraft,reviewDecision,mergeable,mergeStateStatus,autoMergeRequest,statusCheckRollup,headRefOid';
 
 // PR numbers are positional, so --once and --set-mode are plain flags that must
 // not swallow the number after them.
@@ -102,23 +105,29 @@ export function summarizeChecks(rollup) {
   return { checks: pending ? 'pending' : 'passing', failed: [] };
 }
 
-// GraphQL authors are `author.login`, REST authors are `user.login`. Logins are
-// passed through as each API gives them. Comment bodies are deliberately dropped.
-export function normalize(view, lineComments) {
-  const item = (kind, id, author, association, state) => ({
-    kind,
-    id: String(id),
-    author: author ?? '',
-    association: association ?? '',
-    state,
-  });
-  const items = [
-    ...(view.comments ?? []).map((c) => item('issue', c.id, c.author?.login, c.authorAssociation)),
-    ...lineComments.map((c) => item('line', c.id, c.user?.login, c.author_association)),
-    ...(view.reviews ?? [])
+// `rest` holds the REST lists for each kind. REST gives the numeric ID that one
+// item can be fetched by, and a user type that tells a bot from a person.
+// Comment bodies are deliberately dropped.
+export function normalize(view, rest, repo) {
+  const paths = {
+    issue: (id) => `repos/${repo}/issues/comments/${id}`,
+    line: (id) => `repos/${repo}/pulls/comments/${id}`,
+    review: (id) => `repos/${repo}/pulls/${view.number}/reviews/${id}`,
+  };
+  const items = KINDS.flatMap((kind) =>
+    (rest[kind] ?? [])
       .filter((r) => r.state !== 'PENDING')
-      .map((r) => item('review', r.id, r.author?.login, r.authorAssociation, r.state)),
-  ];
+      .map((r) => ({
+        kind,
+        id: String(r.id),
+        nodeId: r.node_id ?? '',
+        author: r.user?.login ?? '',
+        authorType: r.user?.type ?? '',
+        association: r.author_association ?? '',
+        state: r.state,
+        fetch: paths[kind](r.id),
+      })),
+  );
   return {
     number: view.number,
     url: view.url,
@@ -137,8 +146,9 @@ export function normalize(view, lineComments) {
 // GitHub computes mergeability lazily and answers UNKNOWN until it has.
 const isUnknown = (v) => !v || v === 'UNKNOWN';
 
-// Turns a normalized snapshot into what gets saved: the seen comment IDs
-// instead of the items, and the previous mergeability if GitHub is still unsure.
+// Turns a normalized snapshot into what gets saved: the seen comment IDs and
+// the commenters' logins instead of the items, and the previous mergeability if
+// GitHub is still unsure.
 export function toStored(prev, next) {
   const { items, ...rest } = next;
   for (const key of ['mergeable', 'mergeStateStatus']) {
@@ -149,7 +159,7 @@ export function toStored(prev, next) {
     const ids = items.filter((i) => i.kind === kind).map((i) => i.id);
     seen[kind] = [...new Set([...(prev?.seen?.[kind] ?? []), ...ids])];
   }
-  return { ...rest, seen };
+  return { ...rest, commenters: [...new Set(items.map((i) => i.author))], seen };
 }
 
 // prev is a stored snapshot (or undefined for a first poll), next a normalized one.
@@ -159,18 +169,14 @@ export function diffSnapshots(prev, next, selfLogin) {
   const events = [];
 
   for (const i of next.items) {
-    if (prev.seen?.[i.kind]?.includes(i.id) || i.author === selfLogin) continue;
+    // State files from before the switch to REST recorded GraphQL node IDs.
+    const seen = prev.seen?.[i.kind] ?? [];
+    if (seen.includes(i.id) || seen.includes(i.nodeId) || i.author === selfLogin) continue;
+    const who = { id: i.id, author: i.author, authorType: i.authorType, fetch: i.fetch };
     if (i.kind === 'review' && i.state !== 'COMMENTED') {
-      events.push({ pr, type: 'review', id: i.id, author: i.author, state: i.state });
+      events.push({ pr, type: 'review', ...who, state: i.state });
     } else {
-      events.push({
-        pr,
-        type: 'comment',
-        kind: i.kind,
-        id: i.id,
-        author: i.author,
-        association: i.association,
-      });
+      events.push({ pr, type: 'comment', kind: i.kind, ...who, association: i.association });
     }
   }
 
@@ -215,6 +221,7 @@ export function publicView(entry) {
     mergeStateStatus: s.mergeStateStatus,
     autoMerge: s.autoMerge,
     headRefOid: s.headRefOid,
+    commenters: s.commenters ?? [],
   };
 }
 
@@ -277,10 +284,14 @@ function pollOnce({ repo, prs, statePath, selfLogin }) {
   for (const n of prs) {
     const view = JSON.parse(gh(['pr', 'view', String(n), '--repo', repo, '--json', VIEW_FIELDS]));
     // --slurp wraps the pages in one array; plain --paginate emits [..][..], which is not JSON.
-    const pages = JSON.parse(
-      gh(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${n}/comments`]),
-    );
-    const next = normalize(view, pages.flat());
+    const list = (path) =>
+      JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/${path}`])).flat();
+    const rest = {
+      issue: list(`issues/${n}/comments`),
+      line: list(`pulls/${n}/comments`),
+      review: list(`pulls/${n}/reviews`),
+    };
+    const next = normalize(view, rest, repo);
     const entry = state.prs[n] ?? {};
     entry.mode ??= 'reviewers';
     events.push(...diffSnapshots(entry.snapshot, next, selfLogin));
