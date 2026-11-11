@@ -2,6 +2,8 @@
 
 `capture --demo` doesn't film the browser. It takes screenshots at the moments that matter, then draws the video from them. A recording of a headless browser has no cursor and no sign of what was clicked. It also plays every page load and wait as dead time, and its text comes out soft. A drawn video has none of those problems, and it can be restyled without opening the site again.
 
+The exception is movement on the page itself, which one screenshot can't show. A `record` step keeps real frames for that stretch only, about 30 a second, and the video plays them at the pace they were taken.
+
 ## How the keyframes are taken
 
 The recorder runs inside the after side's guarded context, after sign-in, alongside the scenario's steps (`scripts/demo.mjs`, `DemoRecorder`). Every keyframe is a Playwright screenshot of the viewport. Playwright screenshots never include a mouse pointer, so the drawn cursor is the only one in the video.
@@ -12,6 +14,7 @@ The recorder runs inside the after side's guarded context, after sign-in, alongs
 - **`idle`**: just before the cursor moves on, the mouse is parked again and the page is captured with nothing hovered. In the video, the hover ends the moment the cursor leaves.
 - **`changed`**: after a `press`, `goto`, `wait`, or `waitFor` that wasn't part of a click, the settled page fades in.
 - **`scroll`**: a `scroll` step finds the list (or page) that holds its target. It works out where the target sits in the middle, then scrolls there in 8 to 30 steps of about 40 px, with one screenshot each. The drawn cursor rests on the middle of that list while it scrolls.
+- **`clip`**: a `record` step starts Chromium's screencast as soon as the step before it ends, with no settling wait, so the clip shows what that step set off. Chromium sends a JPEG each time the page repaints, up to 60 a second. The recorder keeps about 30 a second, each with the time it was taken, until the step's `ms` is up. The mouse stays where the drawn cursor is. A page that doesn't repaint sends nothing, so the clip holds one screenshot instead.
 
 The recorder looks for each target as long as the step does (10 s), so a slow element the step still finds doesn't drop the demo.
 
@@ -28,6 +31,7 @@ What it draws:
 - A black macOS-style arrow with a white edge, gliding between targets on a slight arc with eased speed, and pressing slightly on each click.
 - A ripple at each click point.
 - Scrolling, eased, with neighboring scroll frames blended so the motion is smooth.
+- A `record` step's real frames, each shown until the next was taken and never blended. The clip runs as long as the step did, whatever the style's timing says.
 - Captions centered under the window, crossfading as each one replaces the last, and shrunk to fit when long.
 
 ## Writing a scenario that makes a good demo
@@ -36,6 +40,8 @@ What it draws:
 - Give each step that shows something a caption saying what the viewer is looking at, in plain words: "A pull request an agent run opened opens the run". The scenario's own `caption` shows from the start.
 - Use a `scroll` step to reach anything below the fold. A click on an off-screen target still works, but the page jumps instead of scrolling.
 - After a click that loads something slow, add a `waitFor` on what appears. Otherwise the `result` keyframe may show a spinner.
+- When the movement is the change (a loader resolving, a preview appearing, an animation), add a `record` step right after the step that starts it, and keep it to the seconds where something moves: 2 to 5 is usually enough. Dead time, such as a build or an agent run, belongs in a `wait` or `waitFor`, which the video skips with one fade.
+- Add a `screenshot` step only where a specific state needs its own still.
 - End on a `screenshot` step to hold the final state.
 
 ```json
