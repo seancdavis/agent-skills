@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.10.2] - 2026-11-11
+
+### Added
+
+- `visual-qa` scenarios can add a `record` step that films the page as it moves
+  (a loader finishing, a preview appearing) instead of showing it as one still.
+
 ## [0.10.1] - 2026-11-10
 
 ### Changed
