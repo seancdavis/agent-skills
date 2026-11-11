@@ -9,6 +9,11 @@
 // ripple on each click, crossfades, smooth scrolling, a window frame, and
 // captions. Restyling means re-rendering, not re-capturing.
 //
+// Where the page itself moves (a loader resolving, a preview appearing), one
+// still can't show it, so a `record` step keeps real frames instead: about 30
+// a second from Chromium's screencast, for that step only, played back at the
+// pace they were taken. Everywhere else, waiting stays one crossfade.
+//
 // The recorder only runs inside runSide's guarded context, after sign-in, so a
 // sign-in is never in the demo. Rendering happens in a separate context in
 // which every request is aborted; it reads only the run's own screenshots, and
@@ -28,11 +33,15 @@ const SETTLE_MS = 800;
 const HOVER_MS = 150;
 const SCROLL_FRAME_PX = 40;
 const SCROLL_FRAMES = { min: 8, max: 30 };
-const MAX_KEYFRAMES = 600;
+const MAX_KEYFRAMES = 1500;
 const BATCH = 15;
-const KEYFRAME = /^\d{3,5}-[a-z]+\.png$/;
+// A `record` step keeps at most this many frames a second, for at most this long.
+export const CLIP_FPS = 30;
+export const RECORD_MAX_MS = 10000;
+const MAX_CLIP_FRAMES = (RECORD_MAX_MS / 1000) * CLIP_FPS + 1;
+const KEYFRAME = /^\d{3,5}-[a-z]+\.(png|jpg)$/;
 const HOLDS = ['start', 'hover', 'afterClick', 'changed', 'screenshot', 'end'];
-const KINDS = ['cursor', 'show', 'hold', 'move', 'click', 'caption', 'scroll'];
+const KINDS = ['cursor', 'show', 'hold', 'move', 'click', 'caption', 'scroll', 'clip'];
 
 // Everything about the look and the pacing. Override any of it with a JSON file
 // (`~/.claude/visual-qa/demo-style.json`, or `render-demo --style <file>`).
@@ -150,6 +159,28 @@ export function isViewport(v) {
 const isPoint = (p) =>
   Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === 'number' && Number.isFinite(n));
 
+// A `record` step's frames: each file with the second it was taken, from the
+// clip's start, in order, all inside the clip's length.
+const isClip = ({ files, times, seconds }) =>
+  typeof seconds === 'number' &&
+  Number.isFinite(seconds) &&
+  seconds > 0 &&
+  seconds <= RECORD_MAX_MS / 1000 &&
+  Array.isArray(files) &&
+  Array.isArray(times) &&
+  files.length >= 1 &&
+  files.length <= MAX_CLIP_FRAMES &&
+  files.length === times.length &&
+  files.every((f) => KEYFRAME.test(f)) &&
+  times.every(
+    (s, k) =>
+      typeof s === 'number' &&
+      Number.isFinite(s) &&
+      s >= 0 &&
+      s <= seconds &&
+      (k === 0 || s >= times[k - 1]),
+  );
+
 // Returns a list of problems; empty when the timeline is safe to render.
 export function validateTimeline(json) {
   if (!isPlainObject(json)) return ['The timeline must be a JSON object.'];
@@ -177,6 +208,9 @@ export function validateTimeline(json) {
         problems.push(`${at}: scroll needs 1-60 keyframe file names.`);
       }
     }
+    if (ev.kind === 'clip' && !isClip(ev)) {
+      problems.push(`${at}: clip needs 1-${MAX_CLIP_FRAMES} frames with rising times inside it.`);
+    }
     if (ev.kind === 'move' && !isPoint(ev.to)) problems.push(`${at}: move needs a point.`);
     if (ev.kind === 'cursor' && !isPoint(ev.at)) problems.push(`${at}: cursor needs a point.`);
     if (ev.kind === 'hold' && !HOLDS.includes(ev.for)) problems.push(`${at}: unknown hold.`);
@@ -189,7 +223,15 @@ export function validateTimeline(json) {
 // from the style, so the same keyframes can be re-paced.
 export function planDemo(timeline, style = DEFAULT_STYLE) {
   const T = style.timing;
-  const plan = { start: null, screens: [], moves: [], clicks: [], captions: [], scrolls: [] };
+  const plan = {
+    start: null,
+    screens: [],
+    moves: [],
+    clicks: [],
+    captions: [],
+    scrolls: [],
+    clips: [],
+  };
   let t = 0;
   let pos = null;
   let current = null;
@@ -231,6 +273,15 @@ export function planDemo(timeline, style = DEFAULT_STYLE) {
         plan.screens.push({ t, file: current, fade: 0 });
         break;
       }
+      // Real frames, played at the pace they were taken. The clip's own length
+      // isn't styled: re-pacing it would change what the page looked like.
+      case 'clip':
+        plan.clips.push({ t0: t, files: ev.files, times: ev.times });
+        plan.screens.push({ t, clip: plan.clips.length - 1, fade: 0 });
+        t += ev.seconds;
+        current = ev.files[ev.files.length - 1];
+        plan.screens.push({ t, file: current, fade: 0 });
+        break;
       default:
         break;
     }
@@ -268,6 +319,7 @@ export function usedFiles(plan) {
   const files = new Set();
   for (const s of plan.screens) if (s.file) files.add(s.file);
   for (const s of plan.scrolls) for (const f of s.files) files.add(f);
+  for (const c of plan.clips) for (const f of c.files) files.add(f);
   return [...files];
 }
 
@@ -339,6 +391,8 @@ export class DemoRecorder {
     this.pending = null;
     // The real mouse sits on the page where the drawn cursor is.
     this.mouseOver = false;
+    // The screencast while a `record` step runs.
+    this.clip = null;
     mkdirSync(dir, { recursive: true });
   }
 
@@ -398,10 +452,12 @@ export class DemoRecorder {
     if (step.caption) this.events.push({ kind: 'caption', text: step.caption });
     if (step.do === 'click' || step.do === 'fill') await this.point(step.target);
     else if (step.do === 'scroll') await this.scroll(step.target);
+    else if (step.do === 'record') await this.startClip();
   }
 
   async after(step) {
     if (step.do === 'click' || step.do === 'fill') this.pending = 'result';
+    else if (step.do === 'record') await this.endClip(step.ms);
     else if (['press', 'goto', 'wait', 'waitFor'].includes(step.do)) this.pending ??= 'changed';
     else if (step.do === 'screenshot') {
       await this.settle();
@@ -448,6 +504,59 @@ export class DemoRecorder {
     } finally {
       await handle.dispose();
     }
+  }
+
+  // Starts keeping real frames, right away: the clip is the result of whatever
+  // came before it, so no settled keyframe is taken first, and the mouse stays
+  // where the drawn cursor is.
+  async startClip() {
+    this.pending = null;
+    const session = await this.page.context().newCDPSession(this.page);
+    const frames = [];
+    const started = Date.now() / 1000;
+    let last = -Infinity;
+    session.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
+      session.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
+      const at = Math.max(0, (metadata?.timestamp ?? Date.now() / 1000) - started);
+      // Chromium sends a frame per repaint, up to 60 a second; keep about 30.
+      if (at - last < 0.9 / CLIP_FPS) return;
+      last = at;
+      frames.push({ at, data });
+    });
+    await session.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 90,
+      maxWidth: this.viewport.width,
+      maxHeight: this.viewport.height,
+    });
+    this.clip = { session, frames };
+  }
+
+  async endClip(ms) {
+    const clip = this.clip;
+    this.clip = null;
+    if (!clip) return;
+    await clip.session.send('Page.stopScreencast').catch(() => {});
+    await clip.session.detach().catch(() => {});
+    const seconds = Math.min(Math.max(ms, 1), RECORD_MAX_MS) / 1000;
+    const kept = clip.frames.filter((f) => f.at <= seconds).slice(0, MAX_CLIP_FRAMES);
+    if (this.count + Math.max(kept.length, 1) > MAX_KEYFRAMES) {
+      throw new Error('The demo has too many keyframes.');
+    }
+    const files = [];
+    const times = [];
+    for (const frame of kept) {
+      const file = `${String(this.count++).padStart(3, '0')}-clip.jpg`;
+      writeFileSync(join(this.dir, file), Buffer.from(frame.data, 'base64'));
+      files.push(file);
+      times.push(Math.round(frame.at * 1000) / 1000);
+    }
+    // A page that didn't repaint sends nothing: hold one still for the clip.
+    if (!files.length) {
+      files.push(await this.shot('clip'));
+      times.push(0);
+    }
+    this.events.push({ kind: 'clip', files, times, seconds });
   }
 
   async finish() {
@@ -537,6 +646,13 @@ function compositor({ plan, style, layout, title }) {
   }
 
   const resolve = (s, t) => {
+    if (s.clip !== undefined) {
+      // The last real frame taken by this point in the clip, never blended.
+      const c = plan.clips[s.clip];
+      let k = 0;
+      while (k + 1 < c.times.length && c.times[k + 1] <= t - c.t0) k++;
+      return [[c.files[k], 1]];
+    }
     if (s.scroll === undefined) return [[s.file, 1]];
     const sc = plan.scrolls[s.scroll];
     const n = sc.files.length;
@@ -771,7 +887,8 @@ export async function renderDemo({ browser, dir, out, style = DEFAULT_STYLE }, d
     await page.setContent('<!doctype html><canvas></canvas>');
     await page.evaluate(compositor, { plan, style, layout, title: timeline.title ?? '' });
     for (const file of files) {
-      const src = `data:image/png;base64,${readFileSync(join(dir, file)).toString('base64')}`;
+      const type = file.endsWith('.jpg') ? 'jpeg' : 'png';
+      const src = `data:image/${type};base64,${readFileSync(join(dir, file)).toString('base64')}`;
       await page.evaluate(
         async ([name, url]) => {
           const img = new Image();

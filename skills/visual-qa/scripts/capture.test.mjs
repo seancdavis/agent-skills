@@ -83,6 +83,16 @@ test('validateScenario rejects a long wait', () => {
   assert.deepEqual(validateScenario({ ...good, steps: [{ do: 'wait', ms: 10000 }] }), []);
 });
 
+test('validateScenario takes a record step of 100-10000 ms', () => {
+  const record = (ms) => validateScenario({ ...good, steps: [{ do: 'record', ms }] });
+  assert.deepEqual(record(100), []);
+  assert.deepEqual(record(10000), []);
+  assert.ok(record(99).length > 0);
+  assert.ok(record(10001).length > 0);
+  assert.ok(record(1.5).length > 0);
+  assert.ok(validateScenario({ ...good, steps: [{ do: 'record' }] }).length > 0);
+});
+
 test('validateScenario accepts captions and a scroll step', () => {
   const steps = [
     { do: 'scroll', target: 'text=Published', caption: 'Down to the published versions' },
