@@ -155,6 +155,58 @@ test('planDemo times moves, clicks, fades, captions, and scrolls from the style'
   assert.ok(close(plan.length, plan.scrolls[0].t1 + T.end));
 });
 
+const withClip = {
+  ...timeline,
+  events: [
+    { kind: 'show', file: '000-start.png' },
+    { kind: 'hold', for: 'start' },
+    {
+      kind: 'clip',
+      files: ['001-clip.jpg', '002-clip.jpg', '003-clip.jpg'],
+      times: [0, 0.4, 1.1],
+      seconds: 2,
+    },
+    { kind: 'hold', for: 'end' },
+  ],
+};
+
+test('validateTimeline takes a clip of real frames and refuses a bad one', () => {
+  assert.deepEqual(validateTimeline(withClip), []);
+  const clip = withClip.events[2];
+  const swap = (change) => ({ ...timeline, events: [{ ...clip, ...change }] });
+  assert.ok(validateTimeline(swap({ files: [], times: [] })).length > 0);
+  assert.ok(validateTimeline(swap({ times: [0, 0.4] })).length > 0);
+  assert.ok(validateTimeline(swap({ times: [0, 1.1, 0.4] })).length > 0);
+  assert.ok(validateTimeline(swap({ times: [0, 0.4, 2.5] })).length > 0);
+  assert.ok(validateTimeline(swap({ seconds: 0 })).length > 0);
+  assert.ok(validateTimeline(swap({ seconds: 11 })).length > 0);
+  assert.ok(
+    validateTimeline(swap({ files: ['001-clip.jpg', '../x.jpg', '003-clip.jpg'] })).length > 0,
+  );
+  assert.ok(
+    validateTimeline(swap({ files: ['001-clip.gif', '002-clip.jpg', '003-clip.jpg'] })).length > 0,
+  );
+});
+
+test('planDemo plays a clip for its own length and ends on its last frame', () => {
+  const plan = planDemo(withClip);
+  assert.deepEqual(plan.clips, [
+    { t0: T.start, files: ['001-clip.jpg', '002-clip.jpg', '003-clip.jpg'], times: [0, 0.4, 1.1] },
+  ]);
+  assert.deepEqual(plan.screens[1], { t: T.start, clip: 0, fade: 0 });
+  assert.deepEqual(plan.screens[2], { t: T.start + 2, file: '003-clip.jpg', fade: 0 });
+  assert.ok(close(plan.length, T.start + 2 + T.end));
+  // Slower pacing doesn't stretch the real footage.
+  const slow = mergeStyle({ timing: { start: T.start + 1 } }).style;
+  assert.ok(close(planDemo(withClip, slow).screens[2].t - planDemo(withClip, slow).clips[0].t0, 2));
+  assert.deepEqual(usedFiles(plan).sort(), [
+    '000-start.png',
+    '001-clip.jpg',
+    '002-clip.jpg',
+    '003-clip.jpg',
+  ]);
+});
+
 test('planDemo re-paces the same keyframes with a different style', () => {
   const slow = mergeStyle({ timing: { afterClick: T.afterClick + 2 } }).style;
   assert.ok(close(planDemo(timeline, slow).length, planDemo(timeline).length + 2));
@@ -210,6 +262,29 @@ function fakePage() {
   };
   page.waitForLoadState = async () => page.waits++;
   page.waitForTimeout = async () => page.waits++;
+  // A screencast that, once started, repaints at whatever `page.paints` says:
+  // seconds after the start, one frame each.
+  page.paints = [];
+  page.cdp = [];
+  page.context = () => ({
+    newCDPSession: async () => {
+      const session = new EventEmitter();
+      session.send = async (method) => {
+        page.cdp.push(method);
+        if (method !== 'Page.startScreencast') return;
+        const base = Date.now() / 1000;
+        page.paints.forEach((s, k) =>
+          session.emit('Page.screencastFrame', {
+            data: Buffer.from(`frame${k}`).toString('base64'),
+            metadata: { timestamp: base + s },
+            sessionId: k,
+          }),
+        );
+      };
+      session.detach = async () => page.cdp.push('detach');
+      return session;
+    },
+  });
   // A list scrolled from 0 to 320 to center the target; its middle is (600, 400).
   const handle = {
     evaluate: async (_fn, y) => {
@@ -305,6 +380,55 @@ test('DemoRecorder takes idle, hover, and result keyframes around a click', asyn
   assert.deepEqual(validateTimeline(saved), []);
   assert.ok(existsSync(join(dir, 'timeline.json')));
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'timeline.json'), 'utf8')), saved);
+});
+
+test('DemoRecorder keeps about 30 real frames a second during a record step', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-demo-'));
+  const page = fakePage();
+  // 60 repaints a second for 2 s, then one more after the step ends.
+  page.paints = [...Array.from({ length: 120 }, (_, k) => k / 60), 2.5];
+  const rec = new DemoRecorder({ page, dir, viewport: { width: 1200, height: 800 }, title: 't' });
+  const click = { do: 'click', target: 'text=Deploy' };
+  const record = { do: 'record', ms: 2000, caption: 'The preview loads' };
+  await rec.start();
+  await rec.before(click);
+  await rec.after(click);
+  const shots = page.shots.length;
+  await rec.before(record);
+  await rec.after(record);
+  const saved = await rec.finish();
+
+  // The clip is the click's result: no settled keyframe is taken before it.
+  assert.equal(page.shots.length, shots);
+  assert.ok(!saved.events.some((e) => e.file?.endsWith('-result.png')));
+  const clip = saved.events.find((e) => e.kind === 'clip');
+  assert.equal(clip.seconds, 2);
+  assert.ok(clip.files.length >= 55 && clip.files.length <= 61, String(clip.files.length));
+  assert.ok(clip.times.every((s) => s <= 2));
+  assert.ok(clip.times.slice(1).every((s, k) => s - clip.times[k] >= 0.9 / 30 - 1e-9));
+  assert.ok(clip.files.every((f) => /^\d{3}-clip\.jpg$/.test(f)));
+  assert.equal(readFileSync(join(dir, clip.files[0]), 'utf8'), 'frame0');
+  assert.deepEqual(page.cdp.slice(0, 1), ['Page.startScreencast']);
+  assert.ok(page.cdp.includes('Page.stopScreencast'));
+  assert.ok(page.cdp.includes('detach'));
+  // The caption shows from the clip's start; the mouse stayed on the target.
+  const at = saved.events.findIndex((e) => e.kind === 'clip');
+  assert.equal(saved.events[at - 1].text, 'The preview loads');
+  assert.deepEqual(page.moves.at(-1), [100, 300]);
+  assert.deepEqual(validateTimeline(saved), []);
+});
+
+test('DemoRecorder holds one still for a record step on a page that never repaints', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vqa-demo-'));
+  const page = fakePage();
+  const rec = new DemoRecorder({ page, dir, viewport: { width: 1200, height: 800 }, title: 't' });
+  await rec.start();
+  await rec.before({ do: 'record', ms: 500 });
+  await rec.after({ do: 'record', ms: 500 });
+  const saved = await rec.finish();
+  const clip = saved.events.find((e) => e.kind === 'clip');
+  assert.deepEqual(clip, { kind: 'clip', files: ['001-clip.png'], times: [0], seconds: 0.5 });
+  assert.deepEqual(validateTimeline(saved), []);
 });
 
 test('DemoRecorder keeps keyframe names inside its folder', async () => {

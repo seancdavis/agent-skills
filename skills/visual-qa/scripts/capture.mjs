@@ -28,6 +28,7 @@ import {
   isCaption,
   isViewport,
   loadStyle,
+  RECORD_MAX_MS,
   renderDemo,
   scrollStep,
 } from './demo.mjs';
@@ -42,7 +43,17 @@ const MAX_STEPS = 100;
 const MAX_MESSAGES = 5;
 const MAX_MESSAGE_CHARS = 200;
 const NAME = /^[a-z0-9-]+$/;
-const STEP_KINDS = ['click', 'fill', 'press', 'waitFor', 'goto', 'wait', 'screenshot', 'scroll'];
+const STEP_KINDS = [
+  'click',
+  'fill',
+  'press',
+  'waitFor',
+  'goto',
+  'wait',
+  'screenshot',
+  'scroll',
+  'record',
+];
 const SECRET_AUTOCOMPLETE = ['current-password', 'new-password', 'one-time-code'];
 
 // ---------- pure logic ----------
@@ -98,6 +109,10 @@ export function validateScenario(json) {
     }
     if (step.do === 'wait' && !(Number.isInteger(step.ms) && step.ms >= 0 && step.ms <= 10000)) {
       problems.push(`${at}: wait ms must be 0-10000.`);
+    }
+    const recordMs = Number.isInteger(step.ms) && step.ms >= 100 && step.ms <= RECORD_MAX_MS;
+    if (step.do === 'record' && !recordMs) {
+      problems.push(`${at}: record ms must be 100-${RECORD_MAX_MS}.`);
     }
     if (step.do === 'screenshot' && !isSafeName(step.name)) {
       problems.push(`${at}: screenshot name must match ^[a-z0-9-]+$.`);
@@ -207,7 +222,9 @@ async function doStep(page, step, { origin, dir, prefix, shots }) {
       if (new URL(url).origin !== origin) throw new StepError('goto left the site');
       return page.goto(url, { waitUntil: 'load', timeout: STEP_TIMEOUT_MS });
     }
+    // A `record` step is a wait on both sides; in a demo, its frames are kept.
     case 'wait':
+    case 'record':
       return page.waitForTimeout(step.ms);
     case 'scroll':
       return scrollStep(page, step.target, STEP_TIMEOUT_MS);

@@ -103,7 +103,8 @@ Commit authors are matched through GitHub's email-to-account link. Faking a comm
    ```
 
    - `name` and screenshot names match `^[a-z0-9-]+$`. `start` and `goto` paths start with a single `/`. `viewport` is optional (default 1280 by 800).
-   - `do` is one of `click`, `fill`, `press`, `waitFor`, `goto`, `wait`, `screenshot`, `scroll`. `target` is a Playwright selector. `scroll` brings its target to the middle of whatever list or page holds it. `wait` is at most 10000 ms. At most 100 steps.
+   - `do` is one of `click`, `fill`, `press`, `waitFor`, `goto`, `wait`, `screenshot`, `scroll`, `record`. `target` is a Playwright selector. `scroll` brings its target to the middle of whatever list or page holds it. `wait` is at most 10000 ms. At most 100 steps.
+   - `record` (`ms`, 100-10000) waits like `wait`, and in the demo plays that stretch as real footage at about 30 frames a second. Put it right after the step that starts movement the viewer needs to see: a loader resolving, a preview appearing, an animation. Leave dead time, such as a build or an agent run, to `wait` or `waitFor`, which the demo skips with one fade. Add a `screenshot` step only when a specific state needs its own still.
    - `caption` (optional, on the scenario or any step) is one line of at most 90 characters, shown under the demo from that step on. Only the demo uses it. Write it in your own words, never copied from the page.
    - `fill` on a password or code field fails the step. Scenarios never type secrets.
    - Each step has a 10 second timeout. A page that leaves the site ends that side with "left the site".
@@ -140,7 +141,7 @@ Commit authors are matched through GitHub's email-to-account link. Faking a comm
 
 Record the demo only once nothing else is in flight: CI passing, CodeRabbit done, no fixes pending. This keeps the video on the final code.
 
-1. Run `capture --demo` on the head commit, with the scenario (or the one that best shows the change). Give that scenario a caption on each step that shows something, and a `scroll` step wherever the change sits below the fold. `references/demo.md` covers writing a scenario that makes a good demo.
+1. Run `capture --demo` on the head commit, with the scenario (or the one that best shows the change). Give that scenario a caption on each step that shows something, a `scroll` step wherever the change sits below the fold, and a `record` step wherever the change is movement on the page itself. `references/demo.md` covers writing a scenario that makes a good demo.
 
    ```sh
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" capture <pr> --preview <check> --scenario <file> --demo
