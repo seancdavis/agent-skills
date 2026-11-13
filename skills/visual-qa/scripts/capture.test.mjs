@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { productionTarget } from './config.mjs';
@@ -21,6 +21,7 @@ import {
   originProblem,
   passedRunProblem,
   recheckBeforeSignIn,
+  recordingName,
   recordShaProblem,
   redactMessage,
   resolvePreviewOrigin,
@@ -846,6 +847,33 @@ test('runRecord saves a skipped record whose --run is for the head commit', () =
   );
   assert.equal(res.code, 0);
   assert.equal(res.out.sha, HEAD);
+});
+
+test('runRecord copies a passed demo into the recordings folder, stamped and named', () => {
+  process.env.VISUAL_QA_RECORDINGS = mkdtempSync(join(tmpdir(), 'vqa-recordings-'));
+  const run = writeRunFolder(HEAD);
+  const demo = join(run, 'demo.mp4');
+  writeFileSync(demo, 'mp4');
+  writeFileSync(
+    join(run, 'run.json'),
+    JSON.stringify({ sha: HEAD, stale: false, demo, files: [demo] }),
+  );
+  const res = runRecord({ pr: 7, repo: 'o/r', status: 'passed', run, sha: HEAD }, () =>
+    prView(HEAD),
+  );
+  assert.equal(res.code, 0);
+  assert.equal(dirname(res.out.recording), process.env.VISUAL_QA_RECORDINGS);
+  assert.match(basename(res.out.recording), /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_o-r-pr7-scn\.mp4$/);
+  assert.equal(readFileSync(res.out.recording, 'utf8'), 'mp4');
+  assert.equal(existsSync(demo), true);
+});
+
+test('recordingName stamps local time and keeps the name file-safe', () => {
+  const now = new Date(2026, 10, 3, 9, 5, 7);
+  assert.equal(
+    recordingName({ repo: 'acme/web app', pr: 12, scenario: 'site-list', now }),
+    '2026-11-03_09-05-07_acme-web-app-pr12-site-list.mp4',
+  );
 });
 
 test('runRecord refuses a missing or stale --sha', () => {

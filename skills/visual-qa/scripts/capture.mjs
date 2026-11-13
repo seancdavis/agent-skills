@@ -11,6 +11,7 @@
 // untrusted: it is cut short and reported as data, never acted on.
 
 import {
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -20,7 +21,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { home, loadConfig, productionTarget, secretOriginAllowed } from './config.mjs';
 import {
   CAPTION_MAX,
@@ -804,6 +806,22 @@ export function recordShaProblem({ sha, head, runJson }) {
   return null;
 }
 
+// Where a passed demo is copied so Sean can find it without digging through the
+// hidden runs folder. VISUAL_QA_RECORDINGS overrides it (the tests use it).
+export function recordingsDir() {
+  return process.env.VISUAL_QA_RECORDINGS || join(homedir(), 'Documents', '__recordings__');
+}
+
+// `2026-11-13_14-32-05_owner-repo-pr7-scenario.mp4`: local time first, so the
+// folder sorts oldest to newest by name.
+export function recordingName({ repo, pr, scenario, now = new Date() }) {
+  const p = (n) => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+  const time = `${p(now.getHours())}-${p(now.getMinutes())}-${p(now.getSeconds())}`;
+  const slug = `${repo.replace('/', '-')}-pr${pr}-${scenario}`.replace(/[^A-Za-z0-9._-]/g, '-');
+  return `${date}_${time}_${slug}.mp4`;
+}
+
 export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr = readPr) {
   if (!['passed', 'failed', 'skipped'].includes(status)) {
     return refused(['--status must be passed, failed, or skipped.']);
@@ -829,11 +847,21 @@ export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr =
   const files = Array.isArray(runJson?.files)
     ? runJson.files.filter((f) => typeof f === 'string')
     : [];
+  // A copy, not a move: the run folder keeps its demo so `render-demo` and a
+  // later `passed` record still work.
+  let recording = null;
+  if (status === 'passed') {
+    const dir = recordingsDir();
+    mkdirSync(dir, { recursive: true });
+    recording = join(dir, recordingName({ repo, pr, scenario: basename(resolve(run)) }));
+    copyFileSync(runJson.demo, recording);
+  }
   const latest = {
     sha,
     status,
     reason: reason ? reason.slice(0, 500) : null,
     run: run ? resolve(run) : null,
+    recording,
     files,
   };
   const path = latestPath(repo, pr);
