@@ -806,20 +806,39 @@ export function recordShaProblem({ sha, head, runJson }) {
   return null;
 }
 
-// Where a passed demo is copied so Sean can find it without digging through the
-// hidden runs folder. VISUAL_QA_RECORDINGS overrides it (the tests use it).
+// Where a recorded run's screenshots and demo are copied so Sean can find them
+// without digging through the hidden runs folder. VISUAL_QA_RECORDINGS
+// overrides it (the tests use it).
 export function recordingsDir() {
   return process.env.VISUAL_QA_RECORDINGS || join(homedir(), 'Documents', '__recordings__');
 }
 
-// `2026-11-13_14-32-05_owner-repo-pr7-scenario.mp4`: local time first, so the
-// folder sorts oldest to newest by name.
-export function recordingName({ repo, pr, scenario, now = new Date() }) {
+// `2026-11-13_14-32-05_owner-repo-pr7-scenario`: local time first, so the
+// folders sort oldest to newest by name.
+export function shareFolderName({ repo, pr, scenario, now = new Date() }) {
   const p = (n) => String(n).padStart(2, '0');
   const date = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
   const time = `${p(now.getHours())}-${p(now.getMinutes())}-${p(now.getSeconds())}`;
   const slug = `${repo.replace('/', '-')}-pr${pr}-${scenario}`.replace(/[^A-Za-z0-9._-]/g, '-');
-  return `${date}_${time}_${slug}.mp4`;
+  return `${date}_${time}_${slug}`;
+}
+
+// Copies a run's files into one new folder under recordingsDir(). A copy, not
+// a move: the run folder keeps its files so `render-demo` and a later record
+// still work. Returns the folder (null when there was nothing to copy) and the
+// copied paths.
+export function shareRun({ repo, pr, run, files, now = new Date() }) {
+  const present = files.filter((f) => existsSync(f));
+  if (present.length === 0) return { folder: null, files: [] };
+  const name = shareFolderName({ repo, pr, scenario: basename(resolve(run)), now });
+  const folder = join(recordingsDir(), name);
+  mkdirSync(folder, { recursive: true });
+  const copied = present.map((file) => {
+    const to = join(folder, basename(file));
+    copyFileSync(file, to);
+    return to;
+  });
+  return { folder, files: copied };
 }
 
 export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr = readPr) {
@@ -847,22 +866,14 @@ export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr =
   const files = Array.isArray(runJson?.files)
     ? runJson.files.filter((f) => typeof f === 'string')
     : [];
-  // A copy, not a move: the run folder keeps its demo so `render-demo` and a
-  // later `passed` record still work.
-  let recording = null;
-  if (status === 'passed') {
-    const dir = recordingsDir();
-    mkdirSync(dir, { recursive: true });
-    recording = join(dir, recordingName({ repo, pr, scenario: basename(resolve(run)) }));
-    copyFileSync(runJson.demo, recording);
-  }
+  const shared = run ? shareRun({ repo, pr, run, files }) : { folder: null, files: [] };
   const latest = {
     sha,
     status,
     reason: reason ? reason.slice(0, 500) : null,
     run: run ? resolve(run) : null,
-    recording,
-    files,
+    folder: shared.folder,
+    files: shared.files,
   };
   const path = latestPath(repo, pr);
   mkdirSync(join(path, '..'), { recursive: true });
