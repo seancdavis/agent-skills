@@ -167,7 +167,7 @@ Record the demo only once nothing else is in flight: CI passing, CodeRabbit done
 
    `--run` is the scenario folder (`<run dir>/<scenario name>`, the one holding `run.json`), inside `~/.claude/visual-qa/runs/`. The record lists that run's `files`. `passed` is refused (exit 2) unless that folder's `run.json` is for the head commit, is not stale, and has a demo file that exists.
 
-   A `passed` record also copies the demo to `~/Documents/__recordings__/<date>_<time>_<owner>-<repo>-pr<n>-<scenario>.mp4` and prints that path as `recording`. The original stays in the run folder.
+   Any record with `--run` (passed, failed, or skipped) copies that run's screenshots and demo into a new folder, `~/Documents/__recordings__/<date>_<time>_<owner>-<repo>-pr<n>-<scenario>/`, and prints it as `folder`, with `files` listing the copies. The originals stay in the run folder. A run with no files makes no folder (`folder: null`).
 
 4. A skip is always recorded with a reason, so `pr-watch` can show it at the gut-check:
 
@@ -175,13 +175,13 @@ Record the demo only once nothing else is in flight: CI passing, CodeRabbit done
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" record <pr> --status skipped --sha <sha> --reason "<why>"
    ```
 
-5. `status <pr>` prints `{ sha, status, reason, run, recording, files, current }`. `current: true` means the record is for the PR's head commit. With no record at all it prints `status: null` and `current: false`.
+5. `status <pr>` prints `{ sha, status, reason, run, folder, files, current }`. `current: true` means the record is for the PR's head commit. With no record at all it prints `status: null` and `current: false`.
 
    ```sh
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" status <pr>
    ```
 
-Give Sean the `recording` path for the demo, and the run folder for the screenshots. Everything stays local; he drags in what he wants.
+Give Sean the `folder` path; it holds the demo and screenshots. Everything stays local; he drags in what he wants.
 
 ## CAPTCHA or code prompt
 

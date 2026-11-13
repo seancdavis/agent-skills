@@ -21,7 +21,6 @@ import {
   originProblem,
   passedRunProblem,
   recheckBeforeSignIn,
-  recordingName,
   recordShaProblem,
   redactMessage,
   resolvePreviewOrigin,
@@ -30,6 +29,7 @@ import {
   runRenderDemo,
   runSide,
   runSigninCommand,
+  shareFolderName,
   validateScenario,
   withCurrent,
 } from './capture.mjs';
@@ -508,6 +508,7 @@ test('recordShaProblem needs a recorded run to be for the same commit', () => {
 // ---------- the re-check comes before sign-in ----------
 
 process.env.VISUAL_QA_HOME = mkdtempSync(join(tmpdir(), 'vqa-capture-test-'));
+process.env.VISUAL_QA_RECORDINGS = mkdtempSync(join(tmpdir(), 'vqa-recordings-'));
 
 const SCENARIO = fileURLToPath(new URL('../references/example-scenario.json', import.meta.url));
 const PREVIEW_HOST = 'deploy-preview-7--app.example.test';
@@ -849,30 +850,46 @@ test('runRecord saves a skipped record whose --run is for the head commit', () =
   assert.equal(res.out.sha, HEAD);
 });
 
-test('runRecord copies a passed demo into the recordings folder, stamped and named', () => {
-  process.env.VISUAL_QA_RECORDINGS = mkdtempSync(join(tmpdir(), 'vqa-recordings-'));
+test('runRecord copies the screenshots and demo into one stamped recordings folder', () => {
   const run = writeRunFolder(HEAD);
+  const shot = join(run, 'after-00-start.png');
   const demo = join(run, 'demo.mp4');
+  writeFileSync(shot, 'png');
   writeFileSync(demo, 'mp4');
   writeFileSync(
     join(run, 'run.json'),
-    JSON.stringify({ sha: HEAD, stale: false, demo, files: [demo] }),
+    JSON.stringify({ sha: HEAD, stale: false, demo, files: [shot, demo] }),
   );
   const res = runRecord({ pr: 7, repo: 'o/r', status: 'passed', run, sha: HEAD }, () =>
     prView(HEAD),
   );
   assert.equal(res.code, 0);
-  assert.equal(dirname(res.out.recording), process.env.VISUAL_QA_RECORDINGS);
-  assert.match(basename(res.out.recording), /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_o-r-pr7-scn\.mp4$/);
-  assert.equal(readFileSync(res.out.recording, 'utf8'), 'mp4');
+  assert.equal(dirname(res.out.folder), process.env.VISUAL_QA_RECORDINGS);
+  assert.match(basename(res.out.folder), /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_o-r-pr7-scn$/);
+  assert.deepEqual(res.out.files, [
+    join(res.out.folder, 'after-00-start.png'),
+    join(res.out.folder, 'demo.mp4'),
+  ]);
+  assert.equal(readFileSync(join(res.out.folder, 'demo.mp4'), 'utf8'), 'mp4');
   assert.equal(existsSync(demo), true);
 });
 
-test('recordingName stamps local time and keeps the name file-safe', () => {
+test('runRecord makes no recordings folder when the run has no files', () => {
+  const run = writeRunFolder(HEAD);
+  const res = runRecord(
+    { pr: 7, repo: 'o/r', status: 'skipped', reason: 'no UI', run, sha: HEAD },
+    () => prView(HEAD),
+  );
+  assert.equal(res.code, 0);
+  assert.equal(res.out.folder, null);
+  assert.deepEqual(res.out.files, []);
+});
+
+test('shareFolderName stamps local time and keeps the name file-safe', () => {
   const now = new Date(2026, 10, 3, 9, 5, 7);
   assert.equal(
-    recordingName({ repo: 'acme/web app', pr: 12, scenario: 'site-list', now }),
-    '2026-11-03_09-05-07_acme-web-app-pr12-site-list.mp4',
+    shareFolderName({ repo: 'acme/web app', pr: 12, scenario: 'site-list', now }),
+    '2026-11-03_09-05-07_acme-web-app-pr12-site-list',
   );
 });
 
