@@ -82,7 +82,7 @@ One `AskUserQuestion` that says what the PR does and gives:
 - the PR link and the deploy preview link, taken from the PR's status checks (`gh pr checks <n>`; on Netlify it's the `deploy/netlify` check); write "none" if no check carries one, and don't read comments to find it
 - unmet items from the spec or verify note, and `human-verify` items
 - CodeRabbit findings you dropped, each with the reason
-- the visual QA result: the demo and screenshot paths from `status`, the skip reason, or the failure reason and what was reported
+- the visual QA result: the demo's `recording` path (its copy in `~/Documents/__recordings__/`) and the screenshot paths from `status`, the skip reason, or the failure reason and what was reported
 
 Answers:
 
