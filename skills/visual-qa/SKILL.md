@@ -165,7 +165,9 @@ Record the demo only once nothing else is in flight: CI passing, CodeRabbit done
 
    `--sha` is required on every `record`: the 40-character commit the decision was based on, taken from the `previews`, `gate`, or `capture` output. It is refused (exit 2) unless it is the PR's current head ("the PR moved since this result was decided"); a `--run` folder's `run.json` must be for the same commit.
 
-   `--run` is the scenario folder (`<run dir>/<scenario name>`, the one holding `run.json`), inside `~/.claude/visual-qa/runs/`. The record lists that run's `files`. `passed` is refused (exit 2) unless that folder's `run.json` is for the head commit, is not stale, and has a demo file that exists.
+   `--run` is the scenario folder (`<run dir>/<scenario name>`, the one holding `run.json`), inside `~/.claude/visual-qa/runs/`. `passed` is refused (exit 2) unless that folder's `run.json` is for the head commit, is not stale, and has a demo file that exists.
+
+   A record with `--run` (passed, failed, or skipped) copies that run's screenshots and demo into a new folder, `~/Documents/__recordings__/<date>_<time>_<owner>-<repo>-pr<n>-<scenario>/`, and prints it as `folder`, with `files` listing the copies. Only `.png` and `.mp4` files that sit directly in the run folder are copied, never `run.json` or a link. The originals stay in the run folder. A run with no screenshots or demo makes no folder (`folder: null`). If the copy fails, the record is still saved: `folder` is `null`, `files` lists the originals, and `shareError` says why. Each record makes a new folder, even for the same run.
 
 4. A skip is always recorded with a reason, so `pr-watch` can show it at the gut-check:
 
@@ -173,13 +175,13 @@ Record the demo only once nothing else is in flight: CI passing, CodeRabbit done
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" record <pr> --status skipped --sha <sha> --reason "<why>"
    ```
 
-5. `status <pr>` prints `{ sha, status, reason, run, files, current }`. `current: true` means the record is for the PR's head commit. With no record at all it prints `status: null` and `current: false`.
+5. `status <pr>` prints `{ sha, status, reason, run, folder, files, current }`, plus `shareError` when the copy failed. `current: true` means the record is for the PR's head commit. With no record at all it prints `status: null` and `current: false`.
 
    ```sh
    node "${CLAUDE_PLUGIN_ROOT}/skills/visual-qa/scripts/visual-qa.mjs" status <pr>
    ```
 
-Tell Sean where the files are; the demo and screenshots stay local. He drags in what he wants.
+Give Sean the `folder` path; it holds the demo and screenshots (or the run folder and `shareError` when the copy failed). Nothing goes to the PR; he drags in what he wants. Screenshots can show the signed-in test user's pages, and `~/Documents` may sync to iCloud.
 
 ## CAPTCHA or code prompt
 
