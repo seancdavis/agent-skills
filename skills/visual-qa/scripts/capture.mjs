@@ -21,9 +21,14 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { home, loadConfig, productionTarget, secretOriginAllowed } from './config.mjs';
+import {
+  home,
+  loadConfig,
+  productionTarget,
+  recordingsDir,
+  secretOriginAllowed,
+} from './config.mjs';
 import {
   CAPTION_MAX,
   DemoRecorder,
@@ -775,11 +780,6 @@ function readRunFile(folder) {
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
-function readRunJson(run) {
-  const folder = runFolder(run);
-  return folder ? readRunFile(folder) : null;
-}
-
 // Why a run may not be recorded as `passed`, or null. It must be the scenario
 // folder's run.json, for the current head commit, not stale, with a demo file.
 export function passedRunProblem(runJson, head, fileExists = existsSync) {
@@ -806,13 +806,6 @@ export function recordShaProblem({ sha, head, runJson }) {
   return null;
 }
 
-// Where a recorded run's screenshots and demo are copied so Sean can find them
-// without digging through the hidden runs folder. VISUAL_QA_RECORDINGS
-// overrides it (the tests use it).
-export function recordingsDir() {
-  return process.env.VISUAL_QA_RECORDINGS || join(homedir(), 'Documents', '__recordings__');
-}
-
 // `2026-11-13_14-32-05_owner-repo-pr7-scenario`: local time first, so the
 // folders sort oldest to newest by name.
 export function shareFolderName({ repo, pr, scenario, now = new Date() }) {
@@ -823,17 +816,22 @@ export function shareFolderName({ repo, pr, scenario, now = new Date() }) {
   return `${date}_${time}_${slug}`;
 }
 
-// Copies a run's files into one new folder under recordingsDir(). A copy, not
-// a move: the run folder keeps its files so `render-demo` and a later record
-// still work. Returns the folder (null when there was nothing to copy) and the
-// copied paths.
-export function shareRun({ repo, pr, run, files, now = new Date() }) {
-  const present = files.filter((f) => existsSync(f));
-  if (present.length === 0) return { folder: null, files: [] };
-  const name = shareFolderName({ repo, pr, scenario: basename(resolve(run)), now });
-  const folder = join(recordingsDir(), name);
+// Whether a file run.json lists may be copied out: a screenshot or the demo,
+// a real file (not a link) sitting directly in the run's own real folder.
+// run.json itself stays put, and so does anything outside the folder.
+export function shareable(file, source) {
+  if (!/\.(png|mp4)$/.test(file) || !existsSync(file)) return false;
+  if (!lstatSync(file).isFile()) return false;
+  return dirname(realpathSync(file)) === source;
+}
+
+// Copies files into one new folder under recordingsDir(). A copy, not a move:
+// the run folder keeps its files so `render-demo` and a later record still
+// work. Returns the new folder and the copied paths.
+export function shareRun({ repo, pr, scenario, files, now = new Date() }) {
+  const folder = join(recordingsDir(), shareFolderName({ repo, pr, scenario, now }));
   mkdirSync(folder, { recursive: true });
-  const copied = present.map((file) => {
+  const copied = files.map((file) => {
     const to = join(folder, basename(file));
     copyFileSync(file, to);
     return to;
@@ -845,9 +843,11 @@ export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr =
   if (!['passed', 'failed', 'skipped'].includes(status)) {
     return refused(['--status must be passed, failed, or skipped.']);
   }
+  let source = null;
   let runJson = null;
   try {
-    if (run) runJson = readRunJson(run);
+    if (run) source = runFolder(run);
+    if (source) runJson = readRunFile(source);
   } catch (err) {
     return refused([err.message]);
   }
@@ -864,9 +864,19 @@ export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr =
     if (problem) return refused([problem]);
   }
   const files = Array.isArray(runJson?.files)
-    ? runJson.files.filter((f) => typeof f === 'string')
+    ? runJson.files.filter((f) => typeof f === 'string' && shareable(f, source))
     : [];
-  const shared = run ? shareRun({ repo, pr, run, files }) : { folder: null, files: [] };
+  // A failed copy (a full disk, Documents not writable) must not lose the
+  // result pr-watch is waiting on: the record keeps the originals and says why.
+  let shared = { folder: null, files };
+  let shareError = null;
+  if (files.length) {
+    try {
+      shared = shareRun({ repo, pr, scenario: basename(source), files });
+    } catch (err) {
+      shareError = firstLine(err);
+    }
+  }
   const latest = {
     sha,
     status,
@@ -874,6 +884,7 @@ export function runRecord({ pr, repo, status, reason, run, sha: given }, getPr =
     run: run ? resolve(run) : null,
     folder: shared.folder,
     files: shared.files,
+    ...(shareError ? { shareError } : {}),
   };
   const path = latestPath(repo, pr);
   mkdirSync(join(path, '..'), { recursive: true });
