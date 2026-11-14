@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.10.3] - 2026-11-14
+
+### Changed
+
+- `visual-qa` copies each run's demo video and screenshots into a dated folder
+  under `~/Documents/__recordings__/`, so they're easy to find and share.
+- `pr-watch` points at that folder when it shows the visual QA result.
+
 ## [0.10.2] - 2026-11-11
 
 ### Added
