@@ -17,6 +17,7 @@ import {
   isPrivateHost,
   isSafeName,
   isSecretField,
+  latestPath,
   mayTypePassword,
   originProblem,
   passedRunProblem,
@@ -850,28 +851,60 @@ test('runRecord saves a skipped record whose --run is for the head commit', () =
   assert.equal(res.out.sha, HEAD);
 });
 
-test('runRecord copies the screenshots and demo into one stamped recordings folder', () => {
+// A run folder whose run.json lists files the way a real capture does (run.json
+// last), plus a file outside the folder and a link out of it.
+function writeSharedRun() {
   const run = writeRunFolder(HEAD);
   const shot = join(run, 'after-00-start.png');
   const demo = join(run, 'demo.mp4');
   writeFileSync(shot, 'png');
   writeFileSync(demo, 'mp4');
-  writeFileSync(
-    join(run, 'run.json'),
-    JSON.stringify({ sha: HEAD, stale: false, demo, files: [shot, demo] }),
-  );
+  const outside = join(mkdtempSync(join(tmpdir(), 'vqa-outside-')), 'secret.png');
+  writeFileSync(outside, 'secret');
+  const link = join(run, 'after-01-link.png');
+  if (!existsSync(link)) symlinkSync(outside, link);
+  const files = [shot, demo, outside, link, join(run, 'run.json')];
+  writeFileSync(join(run, 'run.json'), JSON.stringify({ sha: HEAD, stale: false, demo, files }));
+  return { run, shot, demo };
+}
+
+test('runRecord copies only the screenshots and demo into one stamped recordings folder', () => {
+  const { run, demo } = writeSharedRun();
   const res = runRecord({ pr: 7, repo: 'o/r', status: 'passed', run, sha: HEAD }, () =>
     prView(HEAD),
   );
   assert.equal(res.code, 0);
   assert.equal(dirname(res.out.folder), process.env.VISUAL_QA_RECORDINGS);
   assert.match(basename(res.out.folder), /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_o-r-pr7-scn$/);
-  assert.deepEqual(res.out.files, [
-    join(res.out.folder, 'after-00-start.png'),
-    join(res.out.folder, 'demo.mp4'),
-  ]);
-  assert.equal(readFileSync(join(res.out.folder, 'demo.mp4'), 'utf8'), 'mp4');
+  const copies = [join(res.out.folder, 'after-00-start.png'), join(res.out.folder, 'demo.mp4')];
+  assert.deepEqual(res.out.files, copies);
+  assert.equal(readFileSync(copies[1], 'utf8'), 'mp4');
+  assert.equal(existsSync(join(res.out.folder, 'run.json')), false);
   assert.equal(existsSync(demo), true);
+  // What `status` reads back.
+  const saved = JSON.parse(readFileSync(latestPath('o/r', 7), 'utf8'));
+  assert.equal(saved.folder, res.out.folder);
+  assert.deepEqual(saved.files, copies);
+});
+
+test('runRecord still saves the result when the copy fails', () => {
+  const { run, shot, demo } = writeSharedRun();
+  const dir = process.env.VISUAL_QA_RECORDINGS;
+  const blocker = join(mkdtempSync(join(tmpdir(), 'vqa-blocked-')), 'not-a-folder');
+  writeFileSync(blocker, '');
+  process.env.VISUAL_QA_RECORDINGS = blocker;
+  try {
+    const res = runRecord({ pr: 7, repo: 'o/r', status: 'passed', run, sha: HEAD }, () =>
+      prView(HEAD),
+    );
+    assert.equal(res.code, 0);
+    assert.equal(res.out.folder, null);
+    assert.deepEqual(res.out.files, [shot, demo]);
+    assert.match(res.out.shareError, /\S/);
+    assert.equal(JSON.parse(readFileSync(latestPath('o/r', 7), 'utf8')).status, 'passed');
+  } finally {
+    process.env.VISUAL_QA_RECORDINGS = dir;
+  }
 });
 
 test('runRecord makes no recordings folder when the run has no files', () => {
@@ -885,12 +918,19 @@ test('runRecord makes no recordings folder when the run has no files', () => {
   assert.deepEqual(res.out.files, []);
 });
 
-test('shareFolderName stamps local time and keeps the name file-safe', () => {
-  const now = new Date(2026, 10, 3, 9, 5, 7);
-  assert.equal(
-    shareFolderName({ repo: 'acme/web app', pr: 12, scenario: 'site-list', now }),
-    '2026-11-03_09-05-07_acme-web-app-pr12-site-list',
-  );
+test('shareFolderName stamps the local clock, not UTC, and keeps the name file-safe', () => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    const now = new Date(Date.UTC(2026, 10, 3, 14, 5, 7));
+    assert.equal(
+      shareFolderName({ repo: 'acme/web app', pr: 12, scenario: 'site-list', now }),
+      '2026-11-03_09-05-07_acme-web-app-pr12-site-list',
+    );
+  } finally {
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  }
 });
 
 test('runRecord refuses a missing or stale --sha', () => {

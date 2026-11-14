@@ -19,6 +19,13 @@ export function home() {
   return process.env.VISUAL_QA_HOME || join(homedir(), '.claude', 'visual-qa');
 }
 
+// Where a recorded run's screenshots and demo are copied so Sean can find them
+// without digging through home(). VISUAL_QA_RECORDINGS overrides it (the tests
+// use it).
+export function recordingsDir() {
+  return process.env.VISUAL_QA_RECORDINGS || join(homedir(), 'Documents', '__recordings__');
+}
+
 export function emptyConfig() {
   return { logins: {}, repos: {}, approvedAuthors: [] };
 }
