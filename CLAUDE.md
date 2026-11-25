@@ -132,3 +132,4 @@ description: Comprehensive description - this determines when Claude invokes the
 - Test locally: `claude --plugin-dir .`
 - Commit after each meaningful change
 - Use Prettier for formatting
+- Never commit `docs/sessions/`. Those are `grill-me` logs — local working notes — and this repo is public. The folder is in `.gitignore`; never force-add it.
