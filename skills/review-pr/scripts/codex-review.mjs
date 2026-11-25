@@ -10,7 +10,13 @@
 // plugin forces sandbox=read-only.
 //
 // Usage:
-//   node codex-review.mjs --lens <claims|correctness|security> --base <ref> [--claims-file <path>] [--ci-file <path>] [--context <text>] [--effort <level>] [--model <name>]
+//   node codex-review.mjs --lens <problem|correctness|security> --base <ref> --problem-file <path> [--claims-file <path>] [--ci-file <path>] [--context <text>] [--effort <level>] [--model <name>]
+//
+// --problem-file holds what the PR is meant to solve: the linked issue or the
+// reviewer's own statement, plus their notes on the author's decisions. Every
+// lens needs it, because "normal use" and "blocking" are judged against it.
+// --claims-file holds the PR description — the author's claims, never the
+// problem statement.
 //   node codex-review.mjs --prompt "<custom read-only review prompt>" [...]
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -59,8 +65,8 @@ function findCompanion() {
 }
 
 const LENSES = {
-  claims:
-    "Does the PR do what its description claims? Walk the description's claims one at a time against the code and report each that is unimplemented, half-implemented, or implemented differently than described. Also report changes the description never accounts for. Code that is PRESENT always looks fine — absence and divergence are what you are hunting, so account for every claim rather than reviewing what happens to be in the diff. Ignore style.",
+  problem:
+    "Does the PR solve the problem in <problem>? Walk that problem one requirement at a time against the code and report each that is unsolved, half-solved, or solved differently than the problem asks. Then walk the description's claims in <pr_description>, if provided, the same way, and report changes neither the problem nor the description accounts for. Code that is PRESENT always looks fine — absence and divergence are what you are hunting, so account for every requirement rather than reviewing what happens to be in the diff. Ignore style.",
   correctness:
     'Find real bugs. A finding needs a concrete failure case: inputs or state that produce the wrong result, a crash, or corrupt data. If you cannot name one, it is a suspicion and does not belong in the list. Read whole files and follow callers — a diff hides the function a change lives in and everything that calls it. Ignore style and security.',
   security:
@@ -78,12 +84,19 @@ function buildLensPrompt(args) {
     console.error('--base <ref> is required — the branch this PR would merge into.');
     process.exit(2);
   }
-  // Without the description the claims lens silently reviews the diff on its
-  // own terms, which is a different job that looks like the one we asked for.
-  if (lens === 'claims' && typeof args['claims-file'] !== 'string') {
-    console.error("The claims lens requires --claims-file <path> holding the PR's description.");
+  // Without the problem, a pass judges the PR by its own description, and the
+  // fix becomes the context it's checked against.
+  if (typeof args['problem-file'] !== 'string') {
+    console.error(
+      "--problem-file <path> is required — the linked issue or the reviewer's statement of the problem.",
+    );
     process.exit(2);
   }
+  if (!existsSync(args['problem-file'])) {
+    console.error(`Problem file not found at "${args['problem-file']}".`);
+    process.exit(2);
+  }
+  const problemBlock = `\n<problem>\n${readFileSync(args['problem-file'], 'utf8')}\n</problem>`;
   let claimsBlock = '';
   if (typeof args['claims-file'] === 'string') {
     if (!existsSync(args['claims-file'])) {
@@ -111,10 +124,17 @@ function buildLensPrompt(args) {
 Review ONLY the changes on this branch versus ${args.base} (run: git diff ${args.base}...HEAD) for ${lens.toUpperCase()}. Read-only: do not modify any files.
 Do not run tests, builds, installs, or project scripts — CI already ran them. Reading commands (git, grep, opening files) are fine. ${ciLine}${contextLine}
 ${framing}
-The author of this PR may be an agent. Its description is a claim, not a summary — check every claim against code you actually opened.
-</task>${claimsBlock}${ciBlock}
+<problem> below is what this PR is meant to solve; judge the change against it. The author of this PR may be an agent. Its description is a claim, not a summary — check every claim against code you actually opened.
+Before raising a question, try to answer it yourself from the code, <problem>, git history, and CI. If you find the answer, it is a finding or nothing. Only questions about intent — what the author or the team meant, which no file can tell you — survive.
+</task>${problemBlock}${claimsBlock}${ciBlock}
+<definitions>
+blocking: the change does not solve <problem>, breaks the main path for someone using the feature normally, loses or exposes data, or CI is failing. Nothing else is blocking, however good the point.
+edge case: a failure that someone using the feature normally, as <problem> intends, would not hit, AND that is visible and recoverable when hit (an error they can see and retry past). A failure that is silent or unrecoverable — lost data, wrong data shown with no error, a security hole — is never an edge case, however rare.
+</definitions>
 <structured_output_contract>
-Findings ordered by importance. Each on its own, with these fields and no others: title; file:line; what is wrong (one sentence); evidence (what you opened and what it showed); label (fix = must change before merge | consider = should change | nit = could change); confidence 0-1. If there are none, say so plainly. No preamble, no fix suggestions.
+Findings ordered by importance. Each on its own, with these fields and no others: title; file:line (and any other locations with the same problem); what is wrong (one sentence, in terms of what someone using the product would notice where possible); trigger (the input or steps that produce it, for anything that fails); evidence (what you opened and what it showed); blocking (yes | no); edge case (yes | no); confidence 0-1.
+Then, separately, any intent questions that survived, one line each with the file:line they concern.
+If there are no findings, say so plainly. No preamble, no fix suggestions.
 </structured_output_contract>
 <grounding_rules>
 Only claims the visible code supports. Label inferences as inferences. No speculation stated as fact.
