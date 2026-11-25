@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While pre-1.0, `minor` (`0.X.0`) covers new skills, features, and breaking changes;
 `patch` (`0.0.X`) covers fixes and docs.
 
+## [0.11.0] - 2026-11-25
+
+### Changed
+
+- `review-pr` judges a PR against the problem it links to (an issue or ticket),
+  and asks you for the problem when nothing is linked, instead of trusting the
+  PR's own description.
+- Orientation flags the mechanical changes you can skip and lists the author's
+  real decisions, so you can weigh in before the review runs.
+- Only blocking comments are labeled now. Edge cases come back as a separate
+  batch you pick from, and questions the code could answer never reach you.
+- Each comment opens with one plain line for people, with a collapsed
+  "For agents" section underneath holding the details.
+- Everything that needs you arrives in one report after the review finishes.
+
 ## [0.10.3] - 2026-11-14
 
 ### Changed
